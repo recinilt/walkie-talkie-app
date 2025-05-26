@@ -1,3 +1,31 @@
+// server.js'in başına ekleyin veya güncelleyin:
+
+const app = express();
+
+// CORS ayarları - Güncellenmiş
+const corsOptions = {
+  origin: [
+    'http://localhost:3000',
+    'http://localhost:5500',
+    'https://www.recinilt.com',
+    'https://recinilt.github.io/walkie-talkie-app/client/index.html',
+    'https://recinilt.github.io/*',
+    'https://*.netlify.app' // Netlify preview URL'leri için
+  ],
+  methods: ["GET", "POST"],
+  credentials: true
+};
+
+app.use(cors(corsOptions));
+app.use(express.json());
+
+const server = http.createServer(app);
+const io = socketIO(server, {
+  cors: corsOptions
+});
+
+
+
 const express = require('express');
 const http = require('http');
 const socketIO = require('socket.io');
