@@ -1,7 +1,7 @@
 // WebRTC ve Socket.io yapılandırması
 // Render.com URL'nizi buraya yazın
-const SERVER_URL = 'https://walkie-talkie-server.onrender.com';
-
+//const SERVER_URL = 'https://walkie-talkie-server.onrender.com';
+const SERVER_URL = 'https://walkie-talkie-server-4p8m.onrender.com';
 let socket = null;
 let localStream = null;
 let peerConnections = new Map();
