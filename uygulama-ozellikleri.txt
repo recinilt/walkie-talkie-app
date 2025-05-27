@@ -1,0 +1,73 @@
+## WebRTC Telsiz Uygulaması - Tüm Özellikler
+
+### 🎯 Temel Özellikler
+- **Gerçek zamanlı sesli iletişim** (WebRTC teknolojisi)
+- **Oda sistemi** ile gruplar oluşturma
+- **Şifre korumalı odalar** (isteğe bağlı)
+- **Anlık mesajlaşma** özelliği
+- **Ses görselleştirici** (konuşurken ses seviyesi gösterimi)
+
+### 🎤 Konuşma Modları
+
+1. **Serbest Mod** 🎤
+   - Telsiz boşken herkes konuşabilir
+   - İlk basan konuşur, diğerleri bekler
+
+2. **Sıralı Mod** 📋
+   - Herkes sırayla konuşur
+   - Oda sahibi sırayı atlayabilir
+   - Otomatik sıra takibi
+
+3. **Söz Sırası Modu** ✋
+   - El kaldıranlar sıraya girer
+   - Sırayla konuşma hakkı verilir
+   - Oda sahibi sıradaki kişiyi seçebilir
+
+4. **Aynı Anda İzinli Mod** 👥
+   - Oda sahibi istediği kişilere izin verir
+   - İzinli kişiler aynı anda konuşabilir
+   - Oda sahibi her zaman konuşabilir
+   - El kaldırarak izin istenebilir
+
+### 👑 Oda Sahibi Yetkileri
+- Konuşma modunu değiştirme
+- Sahipliği başkasına devretme
+- Sıralı modda sırayı atlatma
+- Söz sırası modunda konuşmacı seçme
+- Multi modda konuşma izni verme/kaldırma
+
+### 💬 İletişim Özellikleri
+- Mesaj geçmişi (son 50 mesaj)
+- Sistem bildirimleri
+- Kullanıcı giriş/çıkış bildirimleri
+- Anlık durum güncellemeleri
+
+### 📱 Kullanıcı Arayüzü
+- Responsive tasarım (mobil uyumlu)
+- Aktif odalar listesi
+- Katılımcı listesi ve durumları
+- Konuşma durumu göstergeleri
+- El kaldırma butonu
+- Ses visualizer
+
+### 🔒 Güvenlik ve Yönetim
+- Oda şifreleri
+- Otomatik sahip atama (ilk katılan)
+- Sahip ayrılınca otomatik devir
+- Boş odalar otomatik silinir
+
+### 🌐 Teknik Özellikler
+- WebRTC peer-to-peer bağlantı
+- Socket.io ile sinyal sunucusu
+- Echo cancellation (yankı engelleme)
+- Noise suppression (gürültü azaltma)
+- Auto gain control (otomatik ses seviyesi)
+
+### 📊 Durum Göstergeleri
+- Konuşan kişi gösterimi
+- Sıradaki konuşmacı
+- El kaldıranlar
+- İzinli konuşmacılar
+- Bağlantı durumu
+
+Bu uygulama, walkie-talkie (telsiz) mantığıyla çalışan, grup içi sesli iletişim sağlayan modern bir web uygulamasıdır.
