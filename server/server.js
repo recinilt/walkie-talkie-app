@@ -164,6 +164,14 @@ io.on('connection', (socket) => {
 
     // Multi modda izinli konuşmacıları gönder
     if (room.mode === 'multi') {
+      // Eğer oda sahibi izinli değilse ekle
+      if (!room.allowedSpeakers.has(room.owner)) {
+        room.allowedSpeakers.add(room.owner);
+        const owner = room.users.get(room.owner);
+        if (owner) {
+          owner.isAllowedSpeaker = true;
+        }
+      }
       socket.emit('allowed-speakers', Array.from(room.allowedSpeakers));
     }
 
@@ -252,6 +260,12 @@ io.on('connection', (socket) => {
     // Sahipliği devret
     room.owner = newOwnerId;
 
+    // Multi modda yeni sahibi izinli yap
+    if (room.mode === 'multi' && !room.allowedSpeakers.has(newOwnerId)) {
+      room.allowedSpeakers.add(newOwnerId);
+      newOwner.isAllowedSpeaker = true;
+    }
+
     // Tüm kullanıcılara bildir
     io.to(user.roomId).emit('owner-changed', {
       newOwnerId: newOwnerId,
@@ -283,6 +297,12 @@ io.on('connection', (socket) => {
 
     // Sadece oda sahibi ve multi modda
     if (room.owner !== socket.id || room.mode !== 'multi') {
+      return;
+    }
+
+    // Oda sahibinin kendi iznini kaldırmasını engelle
+    if (targetUserId === room.owner) {
+      socket.emit('mode-change-error', { message: 'Oda sahibinin izni kaldırılamaz!' });
       return;
     }
 
@@ -536,10 +556,14 @@ io.on('connection', (socket) => {
       room.speakRequests = [];
       room.allowedSpeakers.clear();
       room.currentSpeakers.clear();
+      
+      // Oda sahibini otomatik olarak izinli yap
+      room.allowedSpeakers.add(room.owner);
+      
       room.users.forEach(u => {
         u.hasSpoken = false;
         u.handRaised = false;
-        u.isAllowedSpeaker = false;
+        u.isAllowedSpeaker = u.id === room.owner; // Oda sahibi izinli
       });
     }
 
@@ -631,8 +655,8 @@ io.on('connection', (socket) => {
         return;
       }
 
-      // Konuşmaya başlama kontrolü - sadece izinli olanlar
-      if (user.isAllowedSpeaker) {
+      // Konuşmaya başlama kontrolü - oda sahibi veya izinli olanlar
+      if (user.isAllowedSpeaker || socket.id === room.owner) {
         room.currentSpeakers.add(socket.id);
         user.isTalking = true;
 
@@ -859,6 +883,16 @@ io.on('connection', (socket) => {
         if (room.owner === socket.id && room.users.size > 0) {
           const newOwner = room.users.keys().next().value;
           room.owner = newOwner;
+          
+          // Yeni sahibi multi modda izinli yap
+          if (room.mode === 'multi' && !room.allowedSpeakers.has(newOwner)) {
+            room.allowedSpeakers.add(newOwner);
+            const newOwnerUser = room.users.get(newOwner);
+            if (newOwnerUser) {
+              newOwnerUser.isAllowedSpeaker = true;
+            }
+          }
+          
           io.to(user.roomId).emit('owner-changed', {
             newOwnerId: newOwner,
             newOwnerName: room.users.get(newOwner).name

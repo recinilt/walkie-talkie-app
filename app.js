@@ -454,7 +454,7 @@ function connectToServer() {
       } else {
         updateStatus(`🔊 ${userName} konuşuyor`, 'busy');
       }
-      if (roomMode !== 'multi' || !isAllowedSpeaker) {
+      if (roomMode !== 'multi' || (!isAllowedSpeaker && !isOwner)) {
         updateTalkButton('disabled');
       }
     }
@@ -482,7 +482,7 @@ function connectToServer() {
           updateStatus(`🔊 Konuşanlar var`, 'busy');
         } else {
           updateStatus('📡 Telsiz Hazır', 'idle');
-          if (isAllowedSpeaker) {
+          if (isAllowedSpeaker || isOwner) {
             updateTalkButton('available');
           }
         }
@@ -493,13 +493,13 @@ function connectToServer() {
     }
   });
 
-  socket.on('room-status', ({ userCount, isBusy, talkingUser, talkingUsers, mode, nextSpeaker, nextSpeakerId: speakerId, queueLength, speakRequests, allowedSpeakers: speakers }) => {
+  socket.on('room-status', ({ userCount, isBusy, talkingUser, talkingUsers, mode, nextSpeaker, nextSpeakerId: speakerId, queueLength, speakRequests, allowedSpeakers: speakers, owner }) => {
     document.getElementById('participantCount').textContent = userCount;
     nextSpeakerId = speakerId;
     
     if (mode === 'multi' && speakers) {
       allowedSpeakers = new Set(speakers);
-      isAllowedSpeaker = speakers.includes(myId);
+      isAllowedSpeaker = speakers.includes(myId) || owner === myId;
     }
     
     if (mode === 'ordered' && nextSpeaker && !isBusy) {
@@ -628,12 +628,13 @@ function updateModeControls() {
     speakQueueContainer.style.display = 'block';
     allowedSpeakersContainer.style.display = 'none';
   } else if (roomMode === 'multi') {
-    raiseHandBtn.style.display = isAllowedSpeaker ? 'none' : 'inline-block';
+    // Oda sahibi el kaldıramaz çünkü zaten izinli
+    raiseHandBtn.style.display = (isAllowedSpeaker || isOwner) ? 'none' : 'inline-block';
     speakQueueContainer.style.display = 'none';
     allowedSpeakersContainer.style.display = 'block';
     
     // Konuş butonu durumunu güncelle
-    if (isAllowedSpeaker) {
+    if (isAllowedSpeaker || isOwner) {
       updateTalkButton('available');
     } else {
       updateTalkButton('disabled');
@@ -672,7 +673,7 @@ function transferOwnership() {
   participants.forEach(p => {
     const userId = p.id.replace('participant-', '');
     if (userId !== myId) {
-      const userName = p.querySelector('.participant-name').textContent.replace(' (Sen)', '');
+      const userName = p.querySelector('.participant-name').textContent.replace(' (Sen)', '').replace(' 👑', '');
       userList += `
         <div class="transfer-item" onclick="confirmTransferOwnership('${userId}', '${userName}')">
           <span>${userName}</span>
@@ -769,6 +770,12 @@ function updateParticipantAllowedStatus(userId, allowed) {
       participant.classList.remove('hand-raised');
     } else {
       participant.classList.remove('allowed-speaker');
+    }
+    
+    // İzin butonunu güncelle
+    const permissionBtn = participant.querySelector('.permission-btn');
+    if (permissionBtn) {
+      permissionBtn.textContent = allowed ? '🚫' : '✅';
     }
   }
 }
@@ -971,7 +978,7 @@ function addParticipant(userId, userName, isTalking, handRaised, isAllowedSpeake
   li.id = `participant-${userId}`;
   li.className = `participant ${isTalking ? 'talking' : ''} ${handRaised ? 'hand-raised' : ''} ${isAllowedSpeaker ? 'allowed-speaker' : ''}`;
   
-  // Multi modda ve oda sahibi ise izin butonunu göster
+  // Multi modda ve oda sahibi ise izin butonunu göster (kendisine gösterme)
   const permissionBtn = (roomMode === 'multi' && isOwner && userId !== myId) ? 
     `<button class="permission-btn" onclick="toggleSpeakerPermission('${userId}')" title="İzin Ver/Kaldır">
       ${isAllowedSpeaker ? '🚫' : '✅'}
