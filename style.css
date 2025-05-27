@@ -361,6 +361,27 @@ h1 {
     font-weight: bold;
 }
 
+/* Sessize alınanlar container */
+.muted-users-container {
+    margin-bottom: 15px;
+    padding: 12px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+}
+
+.muted-users-container h4 {
+    margin-bottom: 8px;
+    text-align: center;
+    font-size: 0.95em;
+}
+
+.muted-info {
+    text-align: center;
+    font-size: 0.85em;
+    color: rgba(255, 255, 255, 0.8);
+    margin-top: 5px;
+}
+
 .status {
     text-align: center;
     padding: 12px;
@@ -557,8 +578,25 @@ h1 {
     font-size: 1.1em;
 }
 
+.participant.muted {
+    background: rgba(244, 67, 54, 0.2);
+    border: 1px solid #f44336;
+}
+
+.participant.muted::before {
+    content: '🔇';
+    position: absolute;
+    left: 10px;
+    font-size: 0.9em;
+}
+
 .participant-name {
     font-weight: bold;
+    padding-left: 10px;
+}
+
+.participant.muted .participant-name {
+    padding-left: 35px;
 }
 
 .participant-actions {
@@ -587,6 +625,45 @@ h1 {
 @keyframes blink {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.3; }
+}
+
+/* Sessize al butonu */
+.mute-btn {
+    padding: 4px 8px;
+    border: none;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.2);
+    color: white;
+    cursor: pointer;
+    font-size: 0.8em;
+    transition: all 0.3s ease;
+    margin-right: 8px;
+}
+
+.mute-btn:hover {
+    background: rgba(255, 255, 255, 0.3);
+    transform: scale(1.1);
+}
+
+.mute-btn:active {
+    transform: scale(0.95);
+}
+
+/* Multi modda konuşanlar için animasyon */
+.participant.talking .talking-indicator {
+    background: #4CAF50;
+    animation: multi-talk 0.3s infinite;
+}
+
+@keyframes multi-talk {
+    0%, 100% { 
+        opacity: 1; 
+        transform: scale(1);
+    }
+    50% { 
+        opacity: 0.5; 
+        transform: scale(1.2);
+    }
 }
 
 /* Mesajlaşma Bölümü */
@@ -757,6 +834,53 @@ h1 {
 }
 
 .modal-content button:active {
+    transform: scale(0.95);
+}
+
+/* Sahiplik devir modal stilleri */
+.transfer-list {
+    max-height: 300px;
+    overflow-y: auto;
+    margin: 15px 0;
+}
+
+.transfer-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px;
+    margin: 5px 0;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    transition: all 0.3s ease;
+}
+
+.transfer-item:hover {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.transfer-item span {
+    color: #333;
+    font-weight: bold;
+}
+
+.transfer-select-btn {
+    padding: 6px 12px;
+    border: none;
+    border-radius: 5px;
+    background: #4CAF50;
+    color: white;
+    cursor: pointer;
+    font-weight: bold;
+    transition: all 0.3s ease;
+}
+
+.transfer-select-btn:hover {
+    background: #45a049;
+    transform: scale(1.05);
+}
+
+.transfer-select-btn:active {
     transform: scale(0.95);
 }
 
@@ -999,187 +1123,5 @@ h1 {
     * {
         animation: none !important;
         transition: none !important;
-    }
-}
-
-
-/* Mevcut CSS'e eklenecek yeni stiller */
-
-/* Multi mode için izinli konuşmacılar stili */
-.participant.allowed-speaker {
-    background: rgba(76, 175, 80, 0.2);
-    border: 1px solid #4CAF50;
-}
-
-.participant.allowed-speaker::before {
-    content: '✅';
-    position: absolute;
-    left: 10px;
-    font-size: 0.9em;
-}
-
-/* İzin butonu */
-.permission-btn {
-    padding: 4px 8px;
-    border: none;
-    border-radius: 4px;
-    background: rgba(255, 255, 255, 0.2);
-    color: white;
-    cursor: pointer;
-    font-size: 0.8em;
-    transition: all 0.3s ease;
-    margin-right: 8px;
-}
-
-.permission-btn:hover {
-    background: rgba(255, 255, 255, 0.3);
-    transform: scale(1.1);
-}
-
-.permission-btn:active {
-    transform: scale(0.95);
-}
-
-/* İzinli konuşmacılar container */
-.allowed-speakers-container {
-    margin-bottom: 15px;
-    padding: 12px;
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 10px;
-}
-
-.allowed-speakers-container h4 {
-    margin-bottom: 8px;
-    text-align: center;
-    font-size: 0.95em;
-}
-
-.allowed-info {
-    text-align: center;
-    font-size: 0.85em;
-    color: rgba(255, 255, 255, 0.8);
-    margin-top: 5px;
-}
-
-/* Sahiplik devir modal stilleri */
-.transfer-list {
-    max-height: 300px;
-    overflow-y: auto;
-    margin: 15px 0;
-}
-
-.transfer-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 10px;
-    margin: 5px 0;
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 8px;
-    transition: all 0.3s ease;
-}
-
-.transfer-item:hover {
-    background: rgba(255, 255, 255, 0.15);
-}
-
-.transfer-item span {
-    color: #333;
-    font-weight: bold;
-}
-
-.transfer-select-btn {
-    padding: 6px 12px;
-    border: none;
-    border-radius: 5px;
-    background: #4CAF50;
-    color: white;
-    cursor: pointer;
-    font-weight: bold;
-    transition: all 0.3s ease;
-}
-
-.transfer-select-btn:hover {
-    background: #45a049;
-    transform: scale(1.05);
-}
-
-.transfer-select-btn:active {
-    transform: scale(0.95);
-}
-
-/* Multi modda aynı anda konuşanlar için animasyon */
-.participant.talking.allowed-speaker .talking-indicator {
-    background: #4CAF50;
-    animation: multi-talk 0.3s infinite;
-}
-
-@keyframes multi-talk {
-    0%, 100% { 
-        opacity: 1; 
-        transform: scale(1);
-    }
-    50% { 
-        opacity: 0.5; 
-        transform: scale(1.2);
-    }
-}
-
-/* Multi modda konuş butonu durumları */
-.talk-button.available.multi-allowed {
-    background: linear-gradient(145deg, #4CAF50, #45a049);
-    box-shadow: 0 5px 20px rgba(76, 175, 80, 0.6);
-}
-
-.talk-button.disabled.multi-not-allowed {
-    background: linear-gradient(145deg, #666, #555);
-    cursor: not-allowed;
-}
-
-.talk-button.disabled.multi-not-allowed::after {
-    content: '🔒';
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    font-size: 2em;
-    opacity: 0.5;
-}
-
-/* Sahip badge'i için güncelleme */
-.participant-name {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-}
-
-/* Mod bilgisi güncelleme */
-.mode-info {
-    animation: fadeIn 0.5s ease;
-}
-
-/* Mobil için responsive düzenlemeler */
-@media (max-width: 600px) {
-    .permission-btn {
-        padding: 3px 6px;
-        font-size: 0.75em;
-    }
-    
-    .transfer-item {
-        padding: 8px;
-    }
-    
-    .transfer-select-btn {
-        padding: 5px 10px;
-        font-size: 0.85em;
-    }
-    
-    .allowed-speakers-container {
-        padding: 10px;
-    }
-    
-    .participant.allowed-speaker::before {
-        left: 5px;
-        font-size: 0.8em;
     }
 }

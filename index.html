@@ -51,7 +51,7 @@
                     <option value="free">Serbest</option>
                     <option value="ordered">Sıralı</option>
                     <option value="queue">Söz Sırası</option>
-                    <option value="multi">Aynı Anda İzinli</option>
+                    <option value="multi">Aynı Anda</option>
                 </select>
                 <span id="ownerBadge" class="owner-badge" style="display: none;">👑</span>
             </div>
@@ -81,10 +81,10 @@
                 <ol id="speakQueueList"></ol>
             </div>
 
-            <!-- İzinli konuşmacılar listesi (multi mode) -->
-            <div id="allowedSpeakersContainer" class="allowed-speakers-container" style="display: none;">
-                <h4>✅ İzinli Konuşmacılar</h4>
-                <div class="allowed-info">İzin verilen kişiler aynı anda konuşabilir</div>
+            <!-- Sessize alınanlar bilgisi (multi mode) -->
+            <div id="mutedUsersContainer" class="muted-users-container" style="display: none;">
+                <h4>🔇 Sessize Alınanlar</h4>
+                <div class="muted-info">Sessize alınan kişiler konuşamaz</div>
             </div>
 
             <div class="audio-visualizer" id="visualizer">
@@ -95,7 +95,7 @@
                 KONUŞ
             </button>
 
-            <!-- El kaldırma butonu (queue ve multi mode) -->
+            <!-- El kaldırma butonu (queue mode) -->
             <button id="raiseHandBtn" class="raise-hand-btn" onclick="toggleHand()" style="display: none;">
                 ✋ El Kaldır
             </button>

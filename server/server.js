@@ -102,7 +102,7 @@ io.on('connection', (socket) => {
         talkQueue: [], // Sıralı konuşma için kuyruk
         currentSpeakerIndex: 0,
         speakRequests: [], // Söz isteyenlerin sırası (queue mode)
-        allowedSpeakers: new Set(), // Aynı anda konuşabilenler (multi mode)
+        mutedUsers: new Set(), // Sessize alınan kullanıcılar (multi mode)
         currentSpeakers: new Set(), // Şu anda konuşanlar (multi mode)
         messages: [], // Mesaj geçmişi
         createdAt: new Date()
@@ -128,7 +128,7 @@ io.on('connection', (socket) => {
       isTalking: false,
       hasSpoken: false,
       handRaised: false, // El kaldırma durumu
-      isAllowedSpeaker: false, // Multi mode için konuşma izni
+      isMuted: false, // Sessize alınma durumu (multi mode)
       joinedAt: new Date()
     };
     users.set(socket.id, user);
@@ -157,22 +157,14 @@ io.on('connection', (socket) => {
         userName: u.name, 
         isTalking: u.isTalking,
         handRaised: u.handRaised,
-        isAllowedSpeaker: u.isAllowedSpeaker 
+        isMuted: u.isMuted 
       }));
     
     socket.emit('existing-users', existingUsers);
 
-    // Multi modda izinli konuşmacıları gönder
+    // Multi modda sessize alınanları gönder
     if (room.mode === 'multi') {
-      // Eğer oda sahibi izinli değilse ekle
-      if (!room.allowedSpeakers.has(room.owner)) {
-        room.allowedSpeakers.add(room.owner);
-        const owner = room.users.get(room.owner);
-        if (owner) {
-          owner.isAllowedSpeaker = true;
-        }
-      }
-      socket.emit('allowed-speakers', Array.from(room.allowedSpeakers));
+      socket.emit('muted-users', Array.from(room.mutedUsers));
     }
 
     // Son 50 mesajı gönder
@@ -260,12 +252,6 @@ io.on('connection', (socket) => {
     // Sahipliği devret
     room.owner = newOwnerId;
 
-    // Multi modda yeni sahibi izinli yap
-    if (room.mode === 'multi' && !room.allowedSpeakers.has(newOwnerId)) {
-      room.allowedSpeakers.add(newOwnerId);
-      newOwner.isAllowedSpeaker = true;
-    }
-
     // Tüm kullanıcılara bildir
     io.to(user.roomId).emit('owner-changed', {
       newOwnerId: newOwnerId,
@@ -287,8 +273,8 @@ io.on('connection', (socket) => {
     console.log(`Oda sahipliği devredildi: ${room.id} - Yeni sahip: ${newOwnerName}`);
   });
 
-  // Konuşmacı izni ver/al (multi mode)
-  socket.on('toggle-speaker-permission', ({ targetUserId }) => {
+  // Kullanıcıyı sessize al/aç (multi mode)
+  socket.on('toggle-mute-user', ({ targetUserId }) => {
     const user = users.get(socket.id);
     if (!user) return;
 
@@ -300,19 +286,28 @@ io.on('connection', (socket) => {
       return;
     }
 
-    // Oda sahibinin kendi iznini kaldırmasını engelle
+    // Oda sahibi kendini sessize alamaz
     if (targetUserId === room.owner) {
-      socket.emit('mode-change-error', { message: 'Oda sahibinin izni kaldırılamaz!' });
+      socket.emit('mode-change-error', { message: 'Oda sahibi kendini sessize alamaz!' });
       return;
     }
 
     const targetUser = room.users.get(targetUserId);
     if (!targetUser) return;
 
-    if (room.allowedSpeakers.has(targetUserId)) {
-      // İzni kaldır
-      room.allowedSpeakers.delete(targetUserId);
-      targetUser.isAllowedSpeaker = false;
+    if (room.mutedUsers.has(targetUserId)) {
+      // Sessize almayı kaldır
+      room.mutedUsers.delete(targetUserId);
+      targetUser.isMuted = false;
+
+      io.to(user.roomId).emit('user-unmuted', {
+        userId: targetUserId,
+        userName: targetUser.name
+      });
+    } else {
+      // Sessize al
+      room.mutedUsers.add(targetUserId);
+      targetUser.isMuted = true;
       
       // Eğer konuşuyorsa durdur
       if (room.currentSpeakers.has(targetUserId)) {
@@ -323,24 +318,14 @@ io.on('connection', (socket) => {
         });
       }
 
-      io.to(user.roomId).emit('speaker-permission-removed', {
-        userId: targetUserId,
-        userName: targetUser.name
-      });
-    } else {
-      // İzin ver
-      room.allowedSpeakers.add(targetUserId);
-      targetUser.isAllowedSpeaker = true;
-      targetUser.handRaised = false; // El kaldırmayı sıfırla
-
-      io.to(user.roomId).emit('speaker-permission-granted', {
+      io.to(user.roomId).emit('user-muted', {
         userId: targetUserId,
         userName: targetUser.name
       });
     }
 
-    // Güncel izinli konuşmacı listesini gönder
-    io.to(user.roomId).emit('allowed-speakers', Array.from(room.allowedSpeakers));
+    // Güncel sessize alınan listesini gönder
+    io.to(user.roomId).emit('muted-users', Array.from(room.mutedUsers));
     updateRoomStatus(user.roomId);
   });
 
@@ -406,50 +391,42 @@ io.on('connection', (socket) => {
     updateRoomStatus(user.roomId);
   });
 
-  // El kaldırma (queue ve multi mode)
+  // El kaldırma (queue mode)
   socket.on('raise-hand', () => {
     const user = users.get(socket.id);
     if (!user) return;
 
     const room = rooms.get(user.roomId);
-    if (!room || (room.mode !== 'queue' && room.mode !== 'multi')) return;
+    if (!room || room.mode !== 'queue') return;
 
-    // Multi modda zaten izinli ise veya konuşuyorsa el kaldırmasın
-    if (room.mode === 'multi' && (user.isAllowedSpeaker || room.currentSpeakers.has(socket.id))) return;
-
-    // Queue modda zaten el kaldırmışsa veya konuşuyorsa
-    if (room.mode === 'queue' && (user.handRaised || room.talkingUser === socket.id)) return;
+    // Zaten el kaldırmışsa veya konuşuyorsa
+    if (user.handRaised || room.talkingUser === socket.id) return;
 
     user.handRaised = true;
-    
-    if (room.mode === 'queue') {
-      room.speakRequests.push(socket.id);
-    }
+    room.speakRequests.push(socket.id);
 
     io.to(user.roomId).emit('hand-raised', {
       userId: socket.id,
       userName: user.name,
-      queuePosition: room.mode === 'queue' ? room.speakRequests.length : null
+      queuePosition: room.speakRequests.length
     });
 
     updateRoomStatus(user.roomId);
   });
 
-  // El indirme (queue ve multi mode)
+  // El indirme (queue mode)
   socket.on('lower-hand', () => {
     const user = users.get(socket.id);
     if (!user) return;
 
     const room = rooms.get(user.roomId);
-    if (!room || (room.mode !== 'queue' && room.mode !== 'multi')) return;
+    if (!room || room.mode !== 'queue') return;
 
     user.handRaised = false;
     
-    if (room.mode === 'queue') {
-      const index = room.speakRequests.indexOf(socket.id);
-      if (index > -1) {
-        room.speakRequests.splice(index, 1);
-      }
+    const index = room.speakRequests.indexOf(socket.id);
+    if (index > -1) {
+      room.speakRequests.splice(index, 1);
     }
 
     io.to(user.roomId).emit('hand-lowered', {
@@ -526,44 +503,41 @@ io.on('connection', (socket) => {
       room.users.forEach(u => {
         u.hasSpoken = false;
         u.handRaised = false;
-        u.isAllowedSpeaker = false;
+        u.isMuted = false;
       });
       room.speakRequests = [];
-      room.allowedSpeakers.clear();
+      room.mutedUsers.clear();
       room.currentSpeakers.clear();
     } else if (mode === 'free') {
       room.talkQueue = [];
       room.speakRequests = [];
-      room.allowedSpeakers.clear();
+      room.mutedUsers.clear();
       room.currentSpeakers.clear();
       room.users.forEach(u => {
         u.hasSpoken = false;
         u.handRaised = false;
-        u.isAllowedSpeaker = false;
+        u.isMuted = false;
       });
     } else if (mode === 'queue') {
       room.talkQueue = [];
       room.speakRequests = [];
-      room.allowedSpeakers.clear();
+      room.mutedUsers.clear();
       room.currentSpeakers.clear();
       room.users.forEach(u => {
         u.hasSpoken = false;
         u.handRaised = false;
-        u.isAllowedSpeaker = false;
+        u.isMuted = false;
       });
     } else if (mode === 'multi') {
       room.talkQueue = [];
       room.speakRequests = [];
-      room.allowedSpeakers.clear();
+      room.mutedUsers.clear();
       room.currentSpeakers.clear();
-      
-      // Oda sahibini otomatik olarak izinli yap
-      room.allowedSpeakers.add(room.owner);
       
       room.users.forEach(u => {
         u.hasSpoken = false;
         u.handRaised = false;
-        u.isAllowedSpeaker = u.id === room.owner; // Oda sahibi izinli
+        u.isMuted = false;
       });
     }
 
@@ -587,7 +561,7 @@ io.on('connection', (socket) => {
       'free': 'Serbest',
       'ordered': 'Sıralı',
       'queue': 'Söz Sırası',
-      'multi': 'Aynı Anda İzinli'
+      'multi': 'Aynı Anda'
     };
     const modeMessage = {
       id: Date.now().toString(),
@@ -641,6 +615,14 @@ io.on('connection', (socket) => {
 
     // Multi modda özel kontrol
     if (room.mode === 'multi') {
+      // Sessize alınmış mı kontrol et
+      if (user.isMuted) {
+        socket.emit('talk-denied', {
+          message: 'Oda sahibi tarafından sessize alındınız.'
+        });
+        return;
+      }
+
       // Eğer bu kullanıcı konuşuyorsa, durdur
       if (room.currentSpeakers.has(socket.id)) {
         room.currentSpeakers.delete(socket.id);
@@ -655,24 +637,18 @@ io.on('connection', (socket) => {
         return;
       }
 
-      // Konuşmaya başlama kontrolü - oda sahibi veya izinli olanlar
-      if (user.isAllowedSpeaker || socket.id === room.owner) {
-        room.currentSpeakers.add(socket.id);
-        user.isTalking = true;
+      // Konuşmaya başla
+      room.currentSpeakers.add(socket.id);
+      user.isTalking = true;
 
-        io.to(user.roomId).emit('talk-started', {
-          userId: socket.id,
-          userName: user.name
-        });
+      io.to(user.roomId).emit('talk-started', {
+        userId: socket.id,
+        userName: user.name
+      });
 
-        socket.emit('talk-granted');
-        console.log(`${user.name} konuşmaya başladı - Oda: ${user.roomId} (Multi mod)`);
-        updateRoomStatus(user.roomId);
-      } else {
-        socket.emit('talk-denied', {
-          message: 'Konuşma izniniz yok. El kaldırın veya oda sahibinden izin isteyin.'
-        });
-      }
+      socket.emit('talk-granted');
+      console.log(`${user.name} konuşmaya başladı - Oda: ${user.roomId} (Multi mod)`);
+      updateRoomStatus(user.roomId);
       return;
     }
 
@@ -839,9 +815,9 @@ io.on('connection', (socket) => {
         // Kullanıcıyı odadan çıkar
         room.users.delete(socket.id);
         
-        // Multi modda izinli konuşmacılardan çıkar
+        // Multi modda sessize alınanlardan çıkar
         if (room.mode === 'multi') {
-          room.allowedSpeakers.delete(socket.id);
+          room.mutedUsers.delete(socket.id);
         }
         
         // Sıralı modda kuyruktan çıkar
@@ -883,15 +859,6 @@ io.on('connection', (socket) => {
         if (room.owner === socket.id && room.users.size > 0) {
           const newOwner = room.users.keys().next().value;
           room.owner = newOwner;
-          
-          // Yeni sahibi multi modda izinli yap
-          if (room.mode === 'multi' && !room.allowedSpeakers.has(newOwner)) {
-            room.allowedSpeakers.add(newOwner);
-            const newOwnerUser = room.users.get(newOwner);
-            if (newOwnerUser) {
-              newOwnerUser.isAllowedSpeaker = true;
-            }
-          }
           
           io.to(user.roomId).emit('owner-changed', {
             newOwnerId: newOwner,
@@ -962,7 +929,7 @@ io.on('connection', (socket) => {
         const user = room.users.get(id);
         return user ? { id, name: user.name } : null;
       }).filter(Boolean),
-      allowedSpeakers: room.mode === 'multi' ? Array.from(room.allowedSpeakers) : []
+      mutedUsers: room.mode === 'multi' ? Array.from(room.mutedUsers) : []
     };
 
     io.to(roomId).emit('room-status', status);

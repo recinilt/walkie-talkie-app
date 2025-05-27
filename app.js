@@ -22,8 +22,8 @@ let isOwner = false;
 let roomMode = 'free';
 let nextSpeakerId = null;
 let handRaised = false;
-let isAllowedSpeaker = false;
-let allowedSpeakers = new Set();
+let isMuted = false;
+let mutedUsers = new Set();
 
 // WebRTC yapılandırması
 const rtcConfig = {
@@ -261,7 +261,7 @@ function connectToServer() {
     
     // Tüm kullanıcıları ekle (kendisi dahil)
     users.forEach(user => {
-      addParticipant(user.userId, user.userName, user.isTalking, user.handRaised, user.isAllowedSpeaker);
+      addParticipant(user.userId, user.userName, user.isTalking, user.handRaised, user.isMuted);
       if (micPermissionGranted && user.userId !== myId) {
         createPeerConnection(user.userId, true);
       }
@@ -319,60 +319,61 @@ function connectToServer() {
       document.getElementById('raiseHandBtn').classList.remove('hand-raised');
     }
     
-    // Multi moddan çıkıldıysa izinleri sıfırla
+    // Multi moddan çıkıldıysa sessize alma durumlarını sıfırla
     if (mode !== 'multi') {
-      isAllowedSpeaker = false;
-      allowedSpeakers.clear();
+      isMuted = false;
+      mutedUsers.clear();
       document.querySelectorAll('.participant').forEach(p => {
-        p.classList.remove('allowed-speaker');
+        p.classList.remove('muted');
       });
     }
   });
 
-  // İzinli konuşmacılar listesi (multi mode)
-  socket.on('allowed-speakers', (speakers) => {
-    allowedSpeakers = new Set(speakers);
-    isAllowedSpeaker = speakers.includes(myId);
+  // Sessize alınan kullanıcılar listesi (multi mode)
+  socket.on('muted-users', (users) => {
+    mutedUsers = new Set(users);
+    isMuted = users.includes(myId);
     
-    // Tüm katılımcıların izin durumunu güncelle
+    // Tüm katılımcıların sessize alma durumunu güncelle
     document.querySelectorAll('.participant').forEach(p => {
       const userId = p.id.replace('participant-', '');
-      if (allowedSpeakers.has(userId)) {
-        p.classList.add('allowed-speaker');
+      if (mutedUsers.has(userId)) {
+        p.classList.add('muted');
       } else {
-        p.classList.remove('allowed-speaker');
+        p.classList.remove('muted');
       }
     });
     
     updateModeControls();
   });
 
-  // Konuşmacı izni verildi (multi mode)
-  socket.on('speaker-permission-granted', ({ userId, userName }) => {
-    allowedSpeakers.add(userId);
+  // Kullanıcı sessize alındı (multi mode)
+  socket.on('user-muted', ({ userId, userName }) => {
+    mutedUsers.add(userId);
     if (userId === myId) {
-      isAllowedSpeaker = true;
-      handRaised = false;
-      document.getElementById('raiseHandBtn').textContent = '✋ El Kaldır';
-      document.getElementById('raiseHandBtn').classList.remove('hand-raised');
-      showNotification('Konuşma izniniz verildi!');
+      isMuted = true;
+      showNotification('Oda sahibi tarafından sessize alındınız!');
+      // Eğer konuşuyorsa durdur
+      if (isTalking) {
+        toggleTalk();
+      }
     }
-    updateParticipantAllowedStatus(userId, true);
+    updateParticipantMutedStatus(userId, true);
     updateModeControls();
   });
 
-  // Konuşmacı izni kaldırıldı (multi mode)
-  socket.on('speaker-permission-removed', ({ userId, userName }) => {
-    allowedSpeakers.delete(userId);
+  // Kullanıcının sessize alması kaldırıldı (multi mode)
+  socket.on('user-unmuted', ({ userId, userName }) => {
+    mutedUsers.delete(userId);
     if (userId === myId) {
-      isAllowedSpeaker = false;
-      showNotification('Konuşma izniniz kaldırıldı!');
+      isMuted = false;
+      showNotification('Sessize alma kaldırıldı!');
     }
-    updateParticipantAllowedStatus(userId, false);
+    updateParticipantMutedStatus(userId, false);
     updateModeControls();
   });
 
-  // El kaldırıldı (queue ve multi mode)
+  // El kaldırıldı (queue mode)
   socket.on('hand-raised', ({ userId, userName, queuePosition }) => {
     updateParticipantHand(userId, true);
     if (userId === myId && queuePosition) {
@@ -380,7 +381,7 @@ function connectToServer() {
     }
   });
 
-  // El indirildi (queue ve multi mode)
+  // El indirildi (queue mode)
   socket.on('hand-lowered', ({ userId }) => {
     updateParticipantHand(userId, false);
   });
@@ -454,7 +455,7 @@ function connectToServer() {
       } else {
         updateStatus(`🔊 ${userName} konuşuyor`, 'busy');
       }
-      if (roomMode !== 'multi' || (!isAllowedSpeaker && !isOwner)) {
+      if (roomMode !== 'multi') {
         updateTalkButton('disabled');
       }
     }
@@ -482,9 +483,6 @@ function connectToServer() {
           updateStatus(`🔊 Konuşanlar var`, 'busy');
         } else {
           updateStatus('📡 Telsiz Hazır', 'idle');
-          if (isAllowedSpeaker || isOwner) {
-            updateTalkButton('available');
-          }
         }
       } else {
         updateStatus('📡 Telsiz Hazır', 'idle');
@@ -493,13 +491,13 @@ function connectToServer() {
     }
   });
 
-  socket.on('room-status', ({ userCount, isBusy, talkingUser, talkingUsers, mode, nextSpeaker, nextSpeakerId: speakerId, queueLength, speakRequests, allowedSpeakers: speakers, owner }) => {
+  socket.on('room-status', ({ userCount, isBusy, talkingUser, talkingUsers, mode, nextSpeaker, nextSpeakerId: speakerId, queueLength, speakRequests, mutedUsers: muted, owner }) => {
     document.getElementById('participantCount').textContent = userCount;
     nextSpeakerId = speakerId;
     
-    if (mode === 'multi' && speakers) {
-      allowedSpeakers = new Set(speakers);
-      isAllowedSpeaker = speakers.includes(myId) || owner === myId;
+    if (mode === 'multi' && muted) {
+      mutedUsers = new Set(muted);
+      isMuted = muted.includes(myId);
     }
     
     if (mode === 'ordered' && nextSpeaker && !isBusy) {
@@ -621,28 +619,27 @@ function updateOwnerControls() {
 function updateModeControls() {
   const raiseHandBtn = document.getElementById('raiseHandBtn');
   const speakQueueContainer = document.getElementById('speakQueueContainer');
-  const allowedSpeakersContainer = document.getElementById('allowedSpeakersContainer');
+  const mutedUsersContainer = document.getElementById('mutedUsersContainer');
   
   if (roomMode === 'queue') {
     raiseHandBtn.style.display = 'inline-block';
     speakQueueContainer.style.display = 'block';
-    allowedSpeakersContainer.style.display = 'none';
+    mutedUsersContainer.style.display = 'none';
   } else if (roomMode === 'multi') {
-    // Oda sahibi el kaldıramaz çünkü zaten izinli
-    raiseHandBtn.style.display = (isAllowedSpeaker || isOwner) ? 'none' : 'inline-block';
+    raiseHandBtn.style.display = 'none';
     speakQueueContainer.style.display = 'none';
-    allowedSpeakersContainer.style.display = 'block';
+    mutedUsersContainer.style.display = 'block';
     
     // Konuş butonu durumunu güncelle
-    if (isAllowedSpeaker || isOwner) {
-      updateTalkButton('available');
-    } else {
+    if (isMuted) {
       updateTalkButton('disabled');
+    } else {
+      updateTalkButton('available');
     }
   } else {
     raiseHandBtn.style.display = 'none';
     speakQueueContainer.style.display = 'none';
-    allowedSpeakersContainer.style.display = 'none';
+    mutedUsersContainer.style.display = 'none';
   }
 }
 
@@ -652,6 +649,7 @@ function skipTurn() {
   socket.emit('skip-turn');
 }
 
+// Sonraki konuşmacı (queue mode)
 // Sonraki konuşmacı (queue mode)
 function nextSpeaker() {
   if (!socket || !isConnected || !isOwner || roomMode !== 'queue') return;
@@ -695,15 +693,15 @@ function confirmTransferOwnership(userId, userName) {
   }
 }
 
-// İzin ver/kaldır (multi mode)
-function toggleSpeakerPermission(userId) {
+// Sessize al/aç (multi mode)
+function toggleMuteUser(userId) {
   if (!socket || !isConnected || !isOwner || roomMode !== 'multi') return;
-  socket.emit('toggle-speaker-permission', { targetUserId: userId });
+  socket.emit('toggle-mute-user', { targetUserId: userId });
 }
 
 // El kaldır/indir
 function toggleHand() {
-  if (!socket || !isConnected || (roomMode !== 'queue' && roomMode !== 'multi')) return;
+  if (!socket || !isConnected || roomMode !== 'queue') return;
   
   if (handRaised) {
     socket.emit('lower-hand');
@@ -761,21 +759,20 @@ function updateParticipantHand(userId, raised) {
   }
 }
 
-// İzinli konuşmacı durumunu güncelle
-function updateParticipantAllowedStatus(userId, allowed) {
+// Sessize alma durumunu güncelle
+function updateParticipantMutedStatus(userId, muted) {
   const participant = document.getElementById(`participant-${userId}`);
   if (participant) {
-    if (allowed) {
-      participant.classList.add('allowed-speaker');
-      participant.classList.remove('hand-raised');
+    if (muted) {
+      participant.classList.add('muted');
     } else {
-      participant.classList.remove('allowed-speaker');
+      participant.classList.remove('muted');
     }
     
-    // İzin butonunu güncelle
-    const permissionBtn = participant.querySelector('.permission-btn');
-    if (permissionBtn) {
-      permissionBtn.textContent = allowed ? '🚫' : '✅';
+    // Sessize al butonunu güncelle
+    const muteBtn = participant.querySelector('.mute-btn');
+    if (muteBtn) {
+      muteBtn.textContent = muted ? '🔊' : '🔇';
     }
   }
 }
@@ -809,7 +806,7 @@ function updateModeInfo(mode) {
     'free': '🎤 Serbest Konuşma - Telsiz boştayken herkes konuşabilir',
     'ordered': '📋 Sıralı Konuşma - Herkes sırayla konuşur',
     'queue': '✋ Söz Sırası - El kaldıranlar sırayla konuşur',
-    'multi': '👥 Aynı Anda İzinli - İzin verilenler aynı anda konuşabilir'
+    'multi': '👥 Aynı Anda - Herkes aynı anda konuşabilir'
   };
   
   modeInfo.textContent = modeDescriptions[mode] || '';
@@ -924,8 +921,8 @@ function leaveRoom() {
   roomMode = 'free';
   nextSpeakerId = null;
   handRaised = false;
-  isAllowedSpeaker = false;
-  allowedSpeakers.clear();
+  isMuted = false;
+  mutedUsers.clear();
   
   // Ekranları değiştir
   document.getElementById('mainScreen').style.display = 'none';
@@ -961,13 +958,13 @@ function updateTalkButton(state) {
       button.disabled = false;
       break;
     case 'disabled':
-      button.textContent = 'MEŞGUL';
+      button.textContent = roomMode === 'multi' && isMuted ? 'SESİZ' : 'MEŞGUL';
       button.disabled = true;
       break;
   }
 }
 
-function addParticipant(userId, userName, isTalking, handRaised, isAllowedSpeaker) {
+function addParticipant(userId, userName, isTalking, handRaised, isMuted) {
   // Eğer zaten varsa ekleme
   if (document.getElementById(`participant-${userId}`)) {
     return;
@@ -976,18 +973,18 @@ function addParticipant(userId, userName, isTalking, handRaised, isAllowedSpeake
   const list = document.getElementById('participantList');
   const li = document.createElement('li');
   li.id = `participant-${userId}`;
-  li.className = `participant ${isTalking ? 'talking' : ''} ${handRaised ? 'hand-raised' : ''} ${isAllowedSpeaker ? 'allowed-speaker' : ''}`;
+  li.className = `participant ${isTalking ? 'talking' : ''} ${handRaised ? 'hand-raised' : ''} ${isMuted ? 'muted' : ''}`;
   
-  // Multi modda ve oda sahibi ise izin butonunu göster (kendisine gösterme)
-  const permissionBtn = (roomMode === 'multi' && isOwner && userId !== myId) ? 
-    `<button class="permission-btn" onclick="toggleSpeakerPermission('${userId}')" title="İzin Ver/Kaldır">
-      ${isAllowedSpeaker ? '🚫' : '✅'}
+  // Multi modda ve oda sahibi ise sessize al butonunu göster (kendisine gösterme)
+  const muteBtn = (roomMode === 'multi' && isOwner && userId !== myId) ? 
+    `<button class="mute-btn" onclick="toggleMuteUser('${userId}')" title="Sessize Al/Aç">
+      ${isMuted ? '🔊' : '🔇'}
     </button>` : '';
   
   li.innerHTML = `
     <span class="participant-name">${userName}${userId === myId ? ' (Sen)' : ''}</span>
     <div class="participant-actions">
-      ${permissionBtn}
+      ${muteBtn}
       <div class="talking-indicator"></div>
     </div>
   `;
