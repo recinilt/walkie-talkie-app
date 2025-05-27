@@ -1,4 +1,8 @@
-// server.js'in başına ekleyin veya güncelleyin:
+const express = require('express');
+const http = require('http');
+const socketIO = require('socket.io');
+const cors = require('cors');
+require('dotenv').config();
 
 const app = express();
 
@@ -7,41 +11,31 @@ const corsOptions = {
   origin: [
     'http://localhost:3000',
     'http://localhost:5500',
+    'http://localhost:5173', // Vite için
     'https://www.recinilt.com',
+    'https://recinilt.com',
+    'https://telsiz.recinilt.com',
+    'https://recinilt.github.io',
+    'https://recinilt.github.io/walkie-talkie-app',
     'https://recinilt.github.io/walkie-talkie-app/client/index.html',
-    'https://recinilt.github.io/*',
-    'https://*.netlify.app' // Netlify preview URL'leri için
+    /^https:\/\/.*\.netlify\.app$/, // Tüm Netlify preview URL'leri için regex
+    /^https:\/\/.*\.vercel\.app$/ // Vercel için
   ],
   methods: ["GET", "POST"],
-  credentials: true
+  credentials: true,
+  optionsSuccessStatus: 200
 };
 
 app.use(cors(corsOptions));
 app.use(express.json());
 
-const server = http.createServer(app);
-const io = socketIO(server, {
-  cors: corsOptions
-});
-
-
-
-const express = require('express');
-const http = require('http');
-const socketIO = require('socket.io');
-const cors = require('cors');
-require('dotenv').config();
-
-const app = express();
-app.use(cors());
-app.use(express.json());
+// Static dosyaları sun (opsiyonel - eğer aynı yerden frontend sunacaksanız)
+app.use(express.static('public'));
 
 const server = http.createServer(app);
 const io = socketIO(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"]
-  }
+  cors: corsOptions,
+  transports: ['websocket', 'polling'] // Transport metodları
 });
 
 // Oda ve kullanıcı yönetimi
@@ -743,6 +737,17 @@ io.on('connection', (socket) => {
 
     io.to(roomId).emit('room-status', status);
   }
+});
+
+// Ana sayfa route'u
+app.get('/', (req, res) => {
+  res.send(`
+    <h1>Walkie Talkie Server</h1>
+    <p>Server is running!</p>
+    <p>Connect your client to this server.</p>
+    <p>Health check: <a href="/health">/health</a></p>
+    <p>Active rooms: <a href="/rooms">/rooms</a></p>
+  `);
 });
 
 // Basit API endpoint'leri
