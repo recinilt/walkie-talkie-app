@@ -18,6 +18,8 @@ const corsOptions = {
     'https://recinilt.github.io',
     'https://www.walkietalkieapp.xyz',
     'https://walkietalkieapp.xyz',
+    'https://www.walkietalkieapp.xyz/client/index.html',
+    'https://walkietalkieapp.xyz/client/index.html',
     'https://recinilt.github.io/walkie-talkie-app',
     'https://recinilt.github.io/walkie-talkie-app/client/index.html',
     /^https:\/\/.*\.netlify\.app$/, // Tüm Netlify preview URL'leri için regex
