@@ -22,6 +22,8 @@ let isOwner = false;
 let roomMode = 'free';
 let nextSpeakerId = null;
 let handRaised = false;
+let isAllowedSpeaker = false;
+let allowedSpeakers = new Set();
 
 // WebRTC yapılandırması
 const rtcConfig = {
@@ -101,7 +103,8 @@ function displayRoomList(rooms) {
     const modeIcons = {
       'free': '🎤',
       'ordered': '📋',
-      'queue': '✋'
+      'queue': '✋',
+      'multi': '👥'
     };
     
     li.innerHTML = `
@@ -258,7 +261,7 @@ function connectToServer() {
     
     // Tüm kullanıcıları ekle (kendisi dahil)
     users.forEach(user => {
-      addParticipant(user.userId, user.userName, user.isTalking, user.handRaised);
+      addParticipant(user.userId, user.userName, user.isTalking, user.handRaised, user.isAllowedSpeaker);
       if (micPermissionGranted && user.userId !== myId) {
         createPeerConnection(user.userId, true);
       }
@@ -269,7 +272,7 @@ function connectToServer() {
   // Yeni kullanıcı katıldı
   socket.on('user-joined', ({ userId, userName }) => {
     console.log('Yeni kullanıcı:', userName);
-    addParticipant(userId, userName, false, false);
+    addParticipant(userId, userName, false, false, false);
     if (micPermissionGranted) {
       createPeerConnection(userId, false);
     }
@@ -287,12 +290,19 @@ function connectToServer() {
   });
 
   // Oda sahibi değişti
-  socket.on('owner-changed', ({ newOwnerId, newOwnerName }) => {
+  socket.on('owner-changed', ({ newOwnerId, newOwnerName, oldOwnerId, oldOwnerName }) => {
     if (newOwnerId === myId) {
       isOwner = true;
       updateOwnerControls();
       showNotification('Artık oda sahibisiniz!');
+    } else {
+      isOwner = false;
+      updateOwnerControls();
     }
+    
+    // Eski ve yeni sahiplerin görünümlerini güncelle
+    updateParticipantOwnerStatus(oldOwnerId, false);
+    updateParticipantOwnerStatus(newOwnerId, true);
   });
 
   // Oda modu değişti
@@ -308,17 +318,69 @@ function connectToServer() {
       document.getElementById('raiseHandBtn').textContent = '✋ El Kaldır';
       document.getElementById('raiseHandBtn').classList.remove('hand-raised');
     }
+    
+    // Multi moddan çıkıldıysa izinleri sıfırla
+    if (mode !== 'multi') {
+      isAllowedSpeaker = false;
+      allowedSpeakers.clear();
+      document.querySelectorAll('.participant').forEach(p => {
+        p.classList.remove('allowed-speaker');
+      });
+    }
   });
 
-  // El kaldırıldı (queue mode)
+  // İzinli konuşmacılar listesi (multi mode)
+  socket.on('allowed-speakers', (speakers) => {
+    allowedSpeakers = new Set(speakers);
+    isAllowedSpeaker = speakers.includes(myId);
+    
+    // Tüm katılımcıların izin durumunu güncelle
+    document.querySelectorAll('.participant').forEach(p => {
+      const userId = p.id.replace('participant-', '');
+      if (allowedSpeakers.has(userId)) {
+        p.classList.add('allowed-speaker');
+      } else {
+        p.classList.remove('allowed-speaker');
+      }
+    });
+    
+    updateModeControls();
+  });
+
+  // Konuşmacı izni verildi (multi mode)
+  socket.on('speaker-permission-granted', ({ userId, userName }) => {
+    allowedSpeakers.add(userId);
+    if (userId === myId) {
+      isAllowedSpeaker = true;
+      handRaised = false;
+      document.getElementById('raiseHandBtn').textContent = '✋ El Kaldır';
+      document.getElementById('raiseHandBtn').classList.remove('hand-raised');
+      showNotification('Konuşma izniniz verildi!');
+    }
+    updateParticipantAllowedStatus(userId, true);
+    updateModeControls();
+  });
+
+  // Konuşmacı izni kaldırıldı (multi mode)
+  socket.on('speaker-permission-removed', ({ userId, userName }) => {
+    allowedSpeakers.delete(userId);
+    if (userId === myId) {
+      isAllowedSpeaker = false;
+      showNotification('Konuşma izniniz kaldırıldı!');
+    }
+    updateParticipantAllowedStatus(userId, false);
+    updateModeControls();
+  });
+
+  // El kaldırıldı (queue ve multi mode)
   socket.on('hand-raised', ({ userId, userName, queuePosition }) => {
     updateParticipantHand(userId, true);
-    if (userId === myId) {
+    if (userId === myId && queuePosition) {
       showNotification(`El kaldırdınız. Sıranız: ${queuePosition}`);
     }
   });
 
-  // El indirildi (queue mode)
+  // El indirildi (queue ve multi mode)
   socket.on('hand-lowered', ({ userId }) => {
     updateParticipantHand(userId, false);
   });
@@ -332,6 +394,11 @@ function connectToServer() {
 
   // Mod değiştirme hatası
   socket.on('mode-change-error', ({ message }) => {
+    showError(message);
+  });
+
+  // Sahiplik devir hatası
+  socket.on('ownership-transfer-error', ({ message }) => {
     showError(message);
   });
 
@@ -382,17 +449,22 @@ function connectToServer() {
 
   socket.on('talk-started', ({ userId, userName }) => {
     if (userId !== myId) {
-      updateStatus(`🔊 ${userName} konuşuyor`, 'busy');
-      updateTalkButton('disabled');
+      if (roomMode === 'multi') {
+        updateStatus(`🔊 Konuşanlar var`, 'busy');
+      } else {
+        updateStatus(`🔊 ${userName} konuşuyor`, 'busy');
+      }
+      if (roomMode !== 'multi' || !isAllowedSpeaker) {
+        updateTalkButton('disabled');
+      }
     }
     updateParticipantTalking(userId, true);
   });
 
   socket.on('talk-stopped', ({ userId }) => {
-    if (userId !== myId) {
-      updateStatus('📡 Telsiz Hazır', 'idle');
-      updateTalkButton('available');
-    } else {
+    updateParticipantTalking(userId, false);
+    
+    if (userId === myId) {
       // Kendimiz durdurduysak
       isTalking = false;
       if (localStream) {
@@ -401,13 +473,34 @@ function connectToServer() {
       updateTalkButton('available');
       updateStatus('📡 Telsiz Hazır', 'idle');
       stopVisualizer();
+    } else {
+      // Başkası durdurduğunda
+      if (roomMode === 'multi') {
+        // Multi modda hala konuşan var mı kontrol et
+        const talkingCount = document.querySelectorAll('.participant.talking').length;
+        if (talkingCount > 0) {
+          updateStatus(`🔊 Konuşanlar var`, 'busy');
+        } else {
+          updateStatus('📡 Telsiz Hazır', 'idle');
+          if (isAllowedSpeaker) {
+            updateTalkButton('available');
+          }
+        }
+      } else {
+        updateStatus('📡 Telsiz Hazır', 'idle');
+        updateTalkButton('available');
+      }
     }
-    updateParticipantTalking(userId, false);
   });
 
-  socket.on('room-status', ({ userCount, isBusy, talkingUser, mode, nextSpeaker, nextSpeakerId: speakerId, queueLength, speakRequests }) => {
+  socket.on('room-status', ({ userCount, isBusy, talkingUser, talkingUsers, mode, nextSpeaker, nextSpeakerId: speakerId, queueLength, speakRequests, allowedSpeakers: speakers }) => {
     document.getElementById('participantCount').textContent = userCount;
     nextSpeakerId = speakerId;
+    
+    if (mode === 'multi' && speakers) {
+      allowedSpeakers = new Set(speakers);
+      isAllowedSpeaker = speakers.includes(myId);
+    }
     
     if (mode === 'ordered' && nextSpeaker && !isBusy) {
       updateStatus(`⏳ Sıra: ${nextSpeaker}`, nextSpeaker === myName ? 'next' : 'idle');
@@ -417,6 +510,9 @@ function connectToServer() {
         updateStatus(`📋 Bekleyen: ${queueLength} kişi`, 'idle');
       }
       updateSpeakQueue(speakRequests);
+    } else if (mode === 'multi' && talkingUsers && talkingUsers.length > 0) {
+      const names = talkingUsers.map(u => u.name).join(', ');
+      updateStatus(`🔊 Konuşanlar: ${names}`, 'busy');
     }
     
     updateOwnerControls();
@@ -494,11 +590,13 @@ function updateOwnerControls() {
   const ownerControls = document.getElementById('ownerControls');
   const skipBtn = document.getElementById('skipTurnBtn');
   const nextBtn = document.getElementById('nextSpeakerBtn');
+  const transferBtn = document.getElementById('transferOwnershipBtn');
   
   if (isOwner) {
     roomModeSelect.disabled = false;
     ownerBadge.style.display = 'inline';
     ownerControls.style.display = 'block';
+    transferBtn.style.display = 'inline-block';
     
     // Mod'a göre butonları göster/gizle
     if (roomMode === 'ordered') {
@@ -515,6 +613,7 @@ function updateOwnerControls() {
     roomModeSelect.disabled = true;
     ownerBadge.style.display = 'none';
     ownerControls.style.display = 'none';
+    transferBtn.style.display = 'none';
   }
 }
 
@@ -522,13 +621,27 @@ function updateOwnerControls() {
 function updateModeControls() {
   const raiseHandBtn = document.getElementById('raiseHandBtn');
   const speakQueueContainer = document.getElementById('speakQueueContainer');
+  const allowedSpeakersContainer = document.getElementById('allowedSpeakersContainer');
   
   if (roomMode === 'queue') {
     raiseHandBtn.style.display = 'inline-block';
     speakQueueContainer.style.display = 'block';
+    allowedSpeakersContainer.style.display = 'none';
+  } else if (roomMode === 'multi') {
+    raiseHandBtn.style.display = isAllowedSpeaker ? 'none' : 'inline-block';
+    speakQueueContainer.style.display = 'none';
+    allowedSpeakersContainer.style.display = 'block';
+    
+    // Konuş butonu durumunu güncelle
+    if (isAllowedSpeaker) {
+      updateTalkButton('available');
+    } else {
+      updateTalkButton('disabled');
+    }
   } else {
     raiseHandBtn.style.display = 'none';
     speakQueueContainer.style.display = 'none';
+    allowedSpeakersContainer.style.display = 'none';
   }
 }
 
@@ -544,9 +657,52 @@ function nextSpeaker() {
   socket.emit('next-speaker');
 }
 
+// Sahipliği devret
+function transferOwnership() {
+  if (!socket || !isConnected || !isOwner) return;
+  
+  // Kullanıcı seçimi için modal aç
+  const participants = document.querySelectorAll('.participant');
+  if (participants.length <= 1) {
+    showError('Sahipliği devredecek başka kullanıcı yok!');
+    return;
+  }
+  
+  let userList = '<div class="transfer-list">';
+  participants.forEach(p => {
+    const userId = p.id.replace('participant-', '');
+    if (userId !== myId) {
+      const userName = p.querySelector('.participant-name').textContent.replace(' (Sen)', '');
+      userList += `
+        <div class="transfer-item" onclick="confirmTransferOwnership('${userId}', '${userName}')">
+          <span>${userName}</span>
+          <button class="transfer-select-btn">Seç</button>
+        </div>
+      `;
+    }
+  });
+  userList += '</div>';
+  
+  showTransferModal(userList);
+}
+
+// Sahiplik devri onayı
+function confirmTransferOwnership(userId, userName) {
+  if (confirm(`Oda sahipliğini ${userName} kişisine devretmek istediğinize emin misiniz?`)) {
+    socket.emit('transfer-ownership', { newOwnerId: userId });
+    closeTransferModal();
+  }
+}
+
+// İzin ver/kaldır (multi mode)
+function toggleSpeakerPermission(userId) {
+  if (!socket || !isConnected || !isOwner || roomMode !== 'multi') return;
+  socket.emit('toggle-speaker-permission', { targetUserId: userId });
+}
+
 // El kaldır/indir
 function toggleHand() {
-  if (!socket || !isConnected || roomMode !== 'queue') return;
+  if (!socket || !isConnected || (roomMode !== 'queue' && roomMode !== 'multi')) return;
   
   if (handRaised) {
     socket.emit('lower-hand');
@@ -604,6 +760,35 @@ function updateParticipantHand(userId, raised) {
   }
 }
 
+// İzinli konuşmacı durumunu güncelle
+function updateParticipantAllowedStatus(userId, allowed) {
+  const participant = document.getElementById(`participant-${userId}`);
+  if (participant) {
+    if (allowed) {
+      participant.classList.add('allowed-speaker');
+      participant.classList.remove('hand-raised');
+    } else {
+      participant.classList.remove('allowed-speaker');
+    }
+  }
+}
+
+// Sahiplik durumunu güncelle
+function updateParticipantOwnerStatus(userId, isOwner) {
+  const participant = document.getElementById(`participant-${userId}`);
+  if (participant) {
+    const nameEl = participant.querySelector('.participant-name');
+    if (nameEl) {
+      const currentName = nameEl.textContent.replace(' (Sen)', '').replace(' 👑', '');
+      if (isOwner) {
+        nameEl.textContent = currentName + ' 👑';
+      } else {
+        nameEl.textContent = currentName + (userId === myId ? ' (Sen)' : '');
+      }
+    }
+  }
+}
+
 // Oda modunu değiştir
 function changeRoomMode() {
   const mode = document.getElementById('roomMode').value;
@@ -616,7 +801,8 @@ function updateModeInfo(mode) {
   const modeDescriptions = {
     'free': '🎤 Serbest Konuşma - Telsiz boştayken herkes konuşabilir',
     'ordered': '📋 Sıralı Konuşma - Herkes sırayla konuşur',
-    'queue': '✋ Söz Sırası - El kaldıranlar sırayla konuşur'
+    'queue': '✋ Söz Sırası - El kaldıranlar sırayla konuşur',
+    'multi': '👥 Aynı Anda İzinli - İzin verilenler aynı anda konuşabilir'
   };
   
   modeInfo.textContent = modeDescriptions[mode] || '';
@@ -731,6 +917,8 @@ function leaveRoom() {
   roomMode = 'free';
   nextSpeakerId = null;
   handRaised = false;
+  isAllowedSpeaker = false;
+  allowedSpeakers.clear();
   
   // Ekranları değiştir
   document.getElementById('mainScreen').style.display = 'none';
@@ -772,7 +960,7 @@ function updateTalkButton(state) {
   }
 }
 
-function addParticipant(userId, userName, isTalking, handRaised) {
+function addParticipant(userId, userName, isTalking, handRaised, isAllowedSpeaker) {
   // Eğer zaten varsa ekleme
   if (document.getElementById(`participant-${userId}`)) {
     return;
@@ -781,11 +969,18 @@ function addParticipant(userId, userName, isTalking, handRaised) {
   const list = document.getElementById('participantList');
   const li = document.createElement('li');
   li.id = `participant-${userId}`;
-  li.className = `participant ${isTalking ? 'talking' : ''} ${handRaised ? 'hand-raised' : ''}`;
+  li.className = `participant ${isTalking ? 'talking' : ''} ${handRaised ? 'hand-raised' : ''} ${isAllowedSpeaker ? 'allowed-speaker' : ''}`;
+  
+  // Multi modda ve oda sahibi ise izin butonunu göster
+  const permissionBtn = (roomMode === 'multi' && isOwner && userId !== myId) ? 
+    `<button class="permission-btn" onclick="toggleSpeakerPermission('${userId}')" title="İzin Ver/Kaldır">
+      ${isAllowedSpeaker ? '🚫' : '✅'}
+    </button>` : '';
   
   li.innerHTML = `
     <span class="participant-name">${userName}${userId === myId ? ' (Sen)' : ''}</span>
     <div class="participant-actions">
+      ${permissionBtn}
       <div class="talking-indicator"></div>
     </div>
   `;
@@ -824,6 +1019,17 @@ function showError(message) {
 
 function closeErrorModal() {
   document.getElementById('errorModal').style.display = 'none';
+}
+
+function showTransferModal(content) {
+  const modal = document.getElementById('transferModal');
+  const modalBody = document.getElementById('transferModalBody');
+  modalBody.innerHTML = content;
+  modal.style.display = 'flex';
+}
+
+function closeTransferModal() {
+  document.getElementById('transferModal').style.display = 'none';
 }
 
 function showNotification(message) {
