@@ -145,5 +145,38 @@
     <!-- Socket.io CDN'den yükle -->
     <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
     <script src="app.js"></script>
+    <script>
+        // Server'ı canlı tutma scripti
+(function keepServerAlive() {
+    // Her 8 dakikada bir ping at
+    const PING_INTERVAL = 8 * 60 * 1000; // 8 dakika
+    
+    async function pingServer() {
+        try {
+            const response = await fetch('https://walkietalkieapp.xyz/health', {
+                method: 'GET',
+                mode: 'no-cors' // CORS hatalarını önler
+            });
+            console.log('Server pinged successfully');
+        } catch (error) {
+            console.log('Ping error (expected with no-cors):', error);
+        }
+    }
+    
+    // İlk ping'i 1 dakika sonra at
+    setTimeout(() => {
+        pingServer();
+        // Sonra düzenli aralıklarla devam et
+        setInterval(pingServer, PING_INTERVAL);
+    }, 60000);
+    
+    // Sayfa görünür olduğunda da ping at
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+            pingServer();
+        }
+    });
+})();
+    </script>
 </body>
 </html>
