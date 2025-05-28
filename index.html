@@ -145,6 +145,7 @@
     <!-- Socket.io CDN'den yükle -->
     <script src="https://cdn.socket.io/4.6.1/socket.io.min.js"></script>
     <script src="app.js"></script>
+
     <script>
         // Server'ı canlı tutma scripti
 (function keepServerAlive() {
@@ -153,22 +154,37 @@
     
     async function pingServer() {
         try {
-            const response = await fetch('https://walkietalkieapp.xyz/health', {
+            // Render backend'ini ping'le
+            const response = await fetch('https://walkie-talkie-server-4p8m.onrender.com/health', {
                 method: 'GET',
-                mode: 'no-cors' // CORS hatalarını önler
+                mode: 'cors'
             });
-            console.log('Server pinged successfully');
+            
+            if (response.ok) {
+                const data = await response.json();
+                console.log('Server pinged successfully:', data);
+            }
         } catch (error) {
-            console.log('Ping error (expected with no-cors):', error);
+            console.log('Ping error:', error);
+            // Hata durumunda sadece ana endpoint'i dene
+            try {
+                await fetch('https://walkie-talkie-server-4p8m.onrender.com/', {
+                    method: 'GET',
+                    mode: 'no-cors'
+                });
+                console.log('Fallback ping sent');
+            } catch (fallbackError) {
+                console.log('Fallback ping error:', fallbackError);
+            }
         }
     }
     
-    // İlk ping'i 1 dakika sonra at
+    // İlk ping'i 30 saniye sonra at
     setTimeout(() => {
         pingServer();
         // Sonra düzenli aralıklarla devam et
         setInterval(pingServer, PING_INTERVAL);
-    }, 60000);
+    }, 30000);
     
     // Sayfa görünür olduğunda da ping at
     document.addEventListener('visibilitychange', () => {
@@ -176,6 +192,9 @@
             pingServer();
         }
     });
+    
+    // Sayfa yüklendiğinde hemen bir ping at
+    pingServer();
 })();
     </script>
 </body>
