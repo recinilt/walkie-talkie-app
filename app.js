@@ -630,10 +630,10 @@ function updateModeControls() {
     speakQueueContainer.style.display = 'none';
     mutedUsersContainer.style.display = 'block';
     
-    // Konuş butonu durumunu güncelle
+    // Konuş butonu durumunu güncelle - sessize alınmışsa disabled, değilse available
     if (isMuted) {
       updateTalkButton('disabled');
-    } else {
+    } else if (!isTalking) {
       updateTalkButton('available');
     }
   } else {
@@ -649,7 +649,6 @@ function skipTurn() {
   socket.emit('skip-turn');
 }
 
-// Sonraki konuşmacı (queue mode)
 // Sonraki konuşmacı (queue mode)
 function nextSpeaker() {
   if (!socket || !isConnected || !isOwner || roomMode !== 'queue') return;

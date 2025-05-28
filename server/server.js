@@ -542,6 +542,7 @@ io.on('connection', (socket) => {
     }
 
     // Konuşan varsa durdur
+// Konuşan varsa durdur
     if (room.talkingUser) {
       const talkingUser = room.users.get(room.talkingUser);
       if (talkingUser) {
@@ -637,7 +638,7 @@ io.on('connection', (socket) => {
         return;
       }
 
-      // Konuşmaya başla
+      // Konuşmaya başla - İZİN KONTROLÜ YOK
       room.currentSpeakers.add(socket.id);
       user.isTalking = true;
 
