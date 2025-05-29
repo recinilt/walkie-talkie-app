@@ -729,3 +729,23 @@ function stopVisualizer() {
   canvasCtx.fillStyle = 'rgba(0, 0, 0, 0.3)';
   canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
 }
+
+// Konuşma toggle fonksiyonu
+async function toggleTalk() {
+  // Mikrofon izni yoksa al
+  if (!micPermissionGranted) {
+    const granted = await requestMicrophonePermission();
+    if (!granted) return;
+  }
+
+  // Multi modda isMuted kontrolü
+  if (roomMode === 'multi' && isMuted) {
+    showNotification('Oda sahibi tarafından sessize alındınız.');
+    return;
+  }
+
+  // Toggle konuşma durumu
+  socket.emit('toggle-talk');
+}
+
+// Diğer ses fonksiyonları...
