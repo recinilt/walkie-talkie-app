@@ -898,7 +898,7 @@ function setupAudioProcessor() {
   
   const source = audioContext.createMediaStreamSource(originalStream);
   const destination = audioContext.createMediaStreamDestination();
-  
+   
   // Master gain kontrolü
   const masterGain = audioContext.createGain();
   masterGain.gain.value = 1.2;
@@ -1732,7 +1732,7 @@ document.addEventListener('gesturestart', function(e) {
 
 //////////////////////////////
 // Ses efekti zinciri oluştur - SES SEVİYESİ DÜZELTİLMİŞ
-function createEffectChain(effect) {
+function createEffectChain_eski(effect) {
   const input = audioContext.createGain();
   input.gain.value = 1.0;
   
@@ -1989,7 +1989,7 @@ function createEffectChain(effect) {
 }
 
 // setupAudioProcessor fonksiyonuna da ek gain ekleyelim
-function setupAudioProcessor() {
+function setupAudioProcessor_eski() {
   if (!localStream || !audioContext) return;
   
   const source = audioContext.createMediaStreamSource(localStream);
@@ -2026,7 +2026,7 @@ function setupAudioProcessor() {
 }
 
 // Ayrıca playRecording fonksiyonunda da ses seviyesini artıralım
-function playRecording() {
+function playRecording_eski() {
   if (recordedChunks.length === 0) return;
   
   const blob = new Blob(recordedChunks, { type: 'audio/webm' });
