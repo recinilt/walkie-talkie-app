@@ -16,6 +16,11 @@ let voiceEffect = 'normal';
 let audioProcessorNode = null;
 let voiceTestActive = false;
 
+// Ses testi için kayıt değişkenleri
+let mediaRecorder = null;
+let recordedChunks = [];
+let recordingTimeout = null;
+
 // Kullanıcı bilgileri
 let myId = null;
 let myName = '';
@@ -1151,16 +1156,27 @@ function testVoiceEffect() {
   }
 }
 
-// Ses testi başlat - GÜNCELLENMİŞ
+// Ses testi başlat - KAYIT VERSİYONU
 function startVoiceTest() {
   const testBtn = document.getElementById('testVoiceBtn');
   
   if (voiceTestActive) {
-    // Testi durdur
+    // Testi iptal et
     voiceTestActive = false;
+    
+    if (recordingTimeout) {
+      clearTimeout(recordingTimeout);
+      recordingTimeout = null;
+    }
+    
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+      mediaRecorder.stop();
+    }
+    
     if (localStream) {
       localStream.getAudioTracks()[0].enabled = false;
     }
+    
     testBtn.textContent = '🎤 Test Et';
     testBtn.classList.remove('testing');
     stopVisualizer();
@@ -1176,7 +1192,7 @@ function startVoiceTest() {
   }
 }
 
-// Ses testini gerçekleştir
+// Ses testini gerçekleştir - KAYIT VERSİYONU
 function performVoiceTest() {
   const testBtn = document.getElementById('testVoiceBtn');
   
@@ -1184,9 +1200,90 @@ function performVoiceTest() {
   if (localStream) {
     localStream.getAudioTracks()[0].enabled = true;
   }
-  testBtn.textContent = '⏹️ Durdur';
+  testBtn.textContent = '🔴 Kayıt (3 sn)';
   testBtn.classList.add('testing');
   startVisualizer();
+  
+  // Ses kaydını başlat
+  startRecording();
+}
+
+// Ses kaydını başlat
+function startRecording() {
+  if (!localStream) return;
+  
+  recordedChunks = [];
+  
+  // MediaRecorder oluştur
+  try {
+    mediaRecorder = new MediaRecorder(localStream, {
+      mimeType: 'audio/webm'
+    });
+  } catch (err) {
+    try {
+      mediaRecorder = new MediaRecorder(localStream);
+    } catch (err2) {
+      console.error('MediaRecorder oluşturulamadı:', err2);
+      showError('Ses kaydı desteklenmiyor!');
+      return;
+    }
+  }
+  
+  mediaRecorder.ondataavailable = (event) => {
+    if (event.data.size > 0) {
+      recordedChunks.push(event.data);
+    }
+  };
+  
+  mediaRecorder.onstop = () => {
+    // Kaydı oynat
+    playRecording();
+  };
+  
+  mediaRecorder.start();
+  
+  // 3 saniye sonra kaydı durdur
+  recordingTimeout = setTimeout(() => {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+      mediaRecorder.stop();
+      if (localStream) {
+        localStream.getAudioTracks()[0].enabled = false;
+      }
+      stopVisualizer();
+      
+      const testBtn = document.getElementById('testVoiceBtn');
+      testBtn.textContent = '▶️ Oynatılıyor...';
+    }
+  }, 3000);
+}
+
+// Kaydı oynat
+function playRecording() {
+  if (recordedChunks.length === 0) return;
+  
+  const blob = new Blob(recordedChunks, { type: 'audio/webm' });
+  const audioUrl = URL.createObjectURL(blob);
+  
+  const audio = new Audio(audioUrl);
+  audio.volume = 0.8;
+  
+  audio.onended = () => {
+    // Oynatma bittiğinde
+    URL.revokeObjectURL(audioUrl);
+    voiceTestActive = false;
+    
+    const testBtn = document.getElementById('testVoiceBtn');
+    testBtn.textContent = '🎤 Test Et';
+    testBtn.classList.remove('testing');
+  };
+  
+  audio.play().catch(err => {
+    console.error('Ses oynatma hatası:', err);
+    const testBtn = document.getElementById('testVoiceBtn');
+    testBtn.textContent = '🎤 Test Et';
+    testBtn.classList.remove('testing');
+    voiceTestActive = false;
+  });
 }
 
 // Peer bağlantısı oluştur
@@ -1249,6 +1346,18 @@ function leaveRoom() {
   if (audioContext) {
     audioContext.close();
   }
+  
+  // Test kayıt değişkenlerini temizle
+  if (recordingTimeout) {
+    clearTimeout(recordingTimeout);
+    recordingTimeout = null;
+  }
+  
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    mediaRecorder.stop();
+  }
+  mediaRecorder = null;
+  recordedChunks = [];
   
   // Değişkenleri sıfırla
   micPermissionGranted = false;
