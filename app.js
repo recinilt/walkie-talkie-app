@@ -358,7 +358,6 @@ function connectToServer() {
     if (userId === myId) {
       isMuted = true;
       showNotification('Oda sahibi tarafından sessize alındınız!');
-      // Eğer konuşuyorsa
       // Eğer konuşuyorsa durdur
       if (isTalking) {
         toggleTalk();
@@ -818,7 +817,7 @@ function updateModeInfo(mode) {
   modeInfo.style.display = 'block';
 }
 
-// Mikrofon iznini al ve peer bağlantılarını kur
+// Mikrofon iznini al ve peer bağlantılarını kur - GÜNCELLENMİŞ
 async function requestMicrophonePermission() {
   try {
     localStream = await navigator.mediaDevices.getUserMedia({ 
@@ -834,12 +833,13 @@ async function requestMicrophonePermission() {
     // Ses analizi için AudioContext oluştur
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
     
-    // Ses efektleri için processor node oluştur
-    setupAudioProcessor();
-    
+    // Analyser'ı oluştur
     analyser = audioContext.createAnalyser();
     analyser.fftSize = 256;
     dataArray = new Uint8Array(analyser.frequencyBinCount);
+    
+    // Ses efektleri için processor node oluştur
+    setupAudioProcessor();
 
     // Başlangıçta mikrofonu kapat
     localStream.getAudioTracks()[0].enabled = false;
@@ -861,13 +861,12 @@ async function requestMicrophonePermission() {
   }
 }
 
-// Ses işlemci kurulumu
+// Ses işlemci kurulumu - DÜZELTİLMİŞ
 function setupAudioProcessor() {
+  if (!localStream || !audioContext) return;
+  
   const source = audioContext.createMediaStreamSource(localStream);
   const destination = audioContext.createMediaStreamDestination();
-  
-  // Temiz ses akışını sakla
-  const cleanStream = destination.stream;
   
   // Ses efekti zinciri oluştur
   audioProcessorNode = createEffectChain(voiceEffect);
@@ -877,18 +876,15 @@ function setupAudioProcessor() {
   audioProcessorNode.output.connect(destination);
   audioProcessorNode.output.connect(analyser);
   
-  // İşlenmiş ses akışını kullan
-  const processedTrack = cleanStream.getAudioTracks()[0];
-  const originalTrack = localStream.getAudioTracks()[0];
-  
-  // Yeni MediaStream oluştur
-  const processedStream = new MediaStream([processedTrack]);
+  // İşlenmiş ses akışını al
+  const processedStream = destination.stream;
+  const processedTrack = processedStream.getAudioTracks()[0];
   
   // Tüm peer bağlantılarını güncelle
   peerConnections.forEach((pc, userId) => {
     const senders = pc.getSenders();
     const audioSender = senders.find(sender => sender.track && sender.track.kind === 'audio');
-    if (audioSender) {
+    if (audioSender && processedTrack) {
       audioSender.replaceTrack(processedTrack);
     }
   });
@@ -897,90 +893,82 @@ function setupAudioProcessor() {
   localStream = processedStream;
 }
 
-// Ses efekti zinciri oluştur
+// Ses efekti zinciri oluştur - DÜZELTİLMİŞ
 function createEffectChain(effect) {
   const input = audioContext.createGain();
-  let output = input;
+  input.gain.value = 1.0;
+  
+  const outputGain = audioContext.createGain();
+  outputGain.gain.value = 1.0;
+  
+  let currentNode = input;
   
   switch(effect) {
     case 'robot':
-      // Robot sesi - Ring modulator + distortion
-      const oscillator = audioContext.createOscillator();
-      oscillator.frequency.value = 30;
-      oscillator.start();
+      // Robot sesi - Basitleştirilmiş versiyon
+      const robotFilter = audioContext.createBiquadFilter();
+      robotFilter.type = 'lowpass';
+      robotFilter.frequency.value = 1000;
+      robotFilter.Q.value = 10;
       
-      const gain1 = audioContext.createGain();
-      const gain2 = audioContext.createGain();
-      gain1.gain.value = 0;
-      gain2.gain.value = 0;
+      const robotDistortion = audioContext.createWaveShaper();
+      robotDistortion.curve = makeDistortionCurve(50);
+      robotDistortion.oversample = '4x';
       
-      oscillator.connect(gain1.gain);
-      input.connect(gain1);
-      
-      const delay = audioContext.createDelay();
-      delay.delayTime.value = 0.02;
-      
-      gain1.connect(delay);
-      delay.connect(gain2);
-      
-      const filter = audioContext.createBiquadFilter();
-      filter.type = 'bandpass';
-      filter.frequency.value = 1000;
-      filter.Q.value = 20;
-      
-      gain2.connect(filter);
-      output = filter;
+      currentNode.connect(robotFilter);
+      robotFilter.connect(robotDistortion);
+      robotDistortion.connect(outputGain);
       break;
       
     case 'alien':
-      // Uzaylı sesi - Pitch shift + reverb
-      const shifter = audioContext.createBiquadFilter();
-      shifter.type = 'allpass';
-      shifter.frequency.value = 1500;
+      // Uzaylı sesi
+      const alienFilter1 = audioContext.createBiquadFilter();
+      alienFilter1.type = 'bandpass';
+      alienFilter1.frequency.value = 1500;
+      alienFilter1.Q.value = 5;
       
-      const alienDelay = audioContext.createDelay();
+      const alienDelay = audioContext.createDelay(1);
       alienDelay.delayTime.value = 0.05;
       
       const alienGain = audioContext.createGain();
-      alienGain.gain.value = 0.8;
+      alienGain.gain.value = 0.6;
       
-      input.connect(shifter);
-      shifter.connect(alienDelay);
+      currentNode.connect(alienFilter1);
+      alienFilter1.connect(alienDelay);
       alienDelay.connect(alienGain);
-      shifter.connect(alienGain);
-      
-      output = alienGain;
+      alienFilter1.connect(alienGain);
+      alienGain.connect(outputGain);
       break;
       
     case 'deep':
-      // Kalın ses - Low pass filter
+      // Kalın ses
       const deepFilter = audioContext.createBiquadFilter();
       deepFilter.type = 'lowpass';
       deepFilter.frequency.value = 500;
       deepFilter.Q.value = 10;
       
       const deepGain = audioContext.createGain();
-      deepGain.gain.value = 2;
+      deepGain.gain.value = 1.5;
       
-      input.connect(deepFilter);
+      currentNode.connect(deepFilter);
       deepFilter.connect(deepGain);
-      output = deepGain;
+      deepGain.connect(outputGain);
       break;
       
     case 'high':
-      // İnce ses - High pass filter + pitch
+      // İnce ses
       const highFilter = audioContext.createBiquadFilter();
       highFilter.type = 'highpass';
       highFilter.frequency.value = 1000;
       highFilter.Q.value = 10;
       
-      input.connect(highFilter);
-      output = highFilter;
+      currentNode.connect(highFilter);
+      highFilter.connect(outputGain);
       break;
       
     case 'echo':
       // Yankı efekti
-      const echoDelay = audioContext.createDelay();
+      const echoDelay = audioContext.createDelay(1);
       echoDelay.delayTime.value = 0.3;
       
       const echoGain = audioContext.createGain();
@@ -990,38 +978,37 @@ function createEffectChain(effect) {
       echoFilter.type = 'highpass';
       echoFilter.frequency.value = 500;
       
-      input.connect(output);
-      input.connect(echoDelay);
+      // Dry signal
+      currentNode.connect(outputGain);
+      
+      // Wet signal (echo)
+      currentNode.connect(echoDelay);
       echoDelay.connect(echoGain);
       echoGain.connect(echoFilter);
       echoFilter.connect(echoDelay);
-      echoFilter.connect(output);
+      echoFilter.connect(outputGain);
       break;
       
     case 'radio':
-      // Radyo sesi - Bandpass + distortion
+      // Radyo sesi
       const radioFilter1 = audioContext.createBiquadFilter();
       radioFilter1.type = 'bandpass';
       radioFilter1.frequency.value = 2000;
-      radioFilter1.Q.value = 5;
+      radioFilter1.Q.value = 10;
       
       const radioFilter2 = audioContext.createBiquadFilter();
       radioFilter2.type = 'bandpass';
-      radioFilter2.frequency.value = 3000;
-      radioFilter2.Q.value = 2;
-      
-      const radioGain = audioContext.createGain();
-      radioGain.gain.value = 3;
+      radioFilter2.frequency.value = 2500;
+      radioFilter2.Q.value = 10;
       
       const radioCompressor = audioContext.createDynamicsCompressor();
       radioCompressor.threshold.value = -20;
-      radioCompressor.ratio.value = 10;
+      radioCompressor.ratio.value = 8;
       
-      input.connect(radioFilter1);
+      currentNode.connect(radioFilter1);
       radioFilter1.connect(radioFilter2);
-      radioFilter2.connect(radioGain);
-      radioGain.connect(radioCompressor);
-      output = radioCompressor;
+      radioFilter2.connect(radioCompressor);
+      radioCompressor.connect(outputGain);
       break;
       
     case 'underwater':
@@ -1029,19 +1016,19 @@ function createEffectChain(effect) {
       const waterFilter = audioContext.createBiquadFilter();
       waterFilter.type = 'lowpass';
       waterFilter.frequency.value = 400;
-      waterFilter.Q.value = 1;
+      waterFilter.Q.value = 2;
       
-      const waterDelay = audioContext.createDelay();
+      const waterDelay = audioContext.createDelay(1);
       waterDelay.delayTime.value = 0.03;
       
       const waterGain = audioContext.createGain();
       waterGain.gain.value = 0.8;
       
-      input.connect(waterFilter);
+      currentNode.connect(waterFilter);
       waterFilter.connect(waterDelay);
       waterDelay.connect(waterGain);
       waterFilter.connect(waterGain);
-      output = waterGain;
+      waterGain.connect(outputGain);
       break;
       
     case 'telephone':
@@ -1049,53 +1036,51 @@ function createEffectChain(effect) {
       const telFilter1 = audioContext.createBiquadFilter();
       telFilter1.type = 'bandpass';
       telFilter1.frequency.value = 2000;
-      telFilter1.Q.value = 20;
+      telFilter1.Q.value = 15;
       
       const telFilter2 = audioContext.createBiquadFilter();
       telFilter2.type = 'bandpass';
       telFilter2.frequency.value = 2500;
-      telFilter2.Q.value = 20;
+      telFilter2.Q.value = 15;
       
       const telCompressor = audioContext.createDynamicsCompressor();
       telCompressor.threshold.value = -30;
-      telCompressor.ratio.value = 12;
+      telCompressor.ratio.value = 10;
       
-      input.connect(telFilter1);
+      currentNode.connect(telFilter1);
       telFilter1.connect(telFilter2);
       telFilter2.connect(telCompressor);
-      output = telCompressor;
+      telCompressor.connect(outputGain);
       break;
       
     case 'cave':
-      // Mağara sesi - Multiple delays
+      // Mağara sesi
       const caveGain = audioContext.createGain();
       caveGain.gain.value = 0.7;
       
-      input.connect(caveGain);
+      currentNode.connect(caveGain);
+      caveGain.connect(outputGain);
       
+      // Multiple echoes
       for (let i = 0; i < 3; i++) {
-        const delay = audioContext.createDelay();
-        delay.delayTime.value = (i + 1) * 0.1;
+        const delay = audioContext.createDelay(1);
+        delay.delayTime.value = (i + 1) * 0.15;
         
         const gain = audioContext.createGain();
-        gain.gain.value = 0.5 / (i + 1);
+        gain.gain.value = 0.4 / (i + 1);
         
         caveGain.connect(delay);
         delay.connect(gain);
-        gain.connect(caveGain);
+        gain.connect(outputGain);
       }
-      
-      output = caveGain;
       break;
       
     case 'normal':
     default:
-      // Normal ses - efekt yok
+      // Normal ses - direkt bağlantı
+      currentNode.connect(outputGain);
       break;
   }
-  
-  const outputGain = audioContext.createGain();
-  output.connect(outputGain);
   
   return {
     input: input,
@@ -1103,17 +1088,36 @@ function createEffectChain(effect) {
   };
 }
 
-// Ses efektini değiştir
+// Distortion curve oluşturucu (robot sesi için)
+function makeDistortionCurve(amount) {
+  const samples = 44100;
+  const curve = new Float32Array(samples);
+  const deg = Math.PI / 180;
+  
+  for (let i = 0; i < samples; i++) {
+    const x = (i * 2) / samples - 1;
+    curve[i] = ((3 + amount) * x * 20 * deg) / (Math.PI + amount * Math.abs(x));
+  }
+  
+  return curve;
+}
+
+// Ses efektini değiştir - DÜZELTİLMİŞ
 function changeVoiceEffect() {
   const selectedEffect = document.getElementById('voiceEffect').value;
   voiceEffect = selectedEffect;
   
   // Eğer mikrofon izni varsa ve audioContext aktifse
-  if (micPermissionGranted && audioContext && localStream) {
-    setupAudioProcessor();
-    
-    // Kullanıcıya bilgi ver
-    showNotification(`Ses efekti değişti: ${getEffectName(selectedEffect)}`);
+  if (micPermissionGranted && audioContext && audioContext.state === 'running' && localStream) {
+    try {
+      setupAudioProcessor();
+      
+      // Kullanıcıya bilgi ver
+      showNotification(`Ses efekti değişti: ${getEffectName(selectedEffect)}`);
+    } catch (error) {
+      console.error('Ses efekti değiştirme hatası:', error);
+      showError('Ses efekti değiştirilemedi. Lütfen sayfayı yenileyin.');
+    }
   }
 }
 
@@ -1147,7 +1151,7 @@ function testVoiceEffect() {
   }
 }
 
-// Ses testi başlat
+// Ses testi başlat - GÜNCELLENMİŞ
 function startVoiceTest() {
   const testBtn = document.getElementById('testVoiceBtn');
   
@@ -1161,18 +1165,28 @@ function startVoiceTest() {
     testBtn.classList.remove('testing');
     stopVisualizer();
   } else {
-    // Testi başlat
-    voiceTestActive = true;
-    if (localStream) {
-      localStream.getAudioTracks()[0].enabled = true;
+    // Önce AudioContext'in durumunu kontrol et
+    if (audioContext && audioContext.state === 'suspended') {
+      audioContext.resume().then(() => {
+        performVoiceTest();
+      });
+    } else {
+      performVoiceTest();
     }
-    testBtn.textContent = '⏹️ Durdur';
-    testBtn.classList.add('testing');
-    startVisualizer();
-    
-    // Test için ses geri dönüşü (opsiyonel - dikkatli kullanın)
-    // playbackTest();
   }
+}
+
+// Ses testini gerçekleştir
+function performVoiceTest() {
+  const testBtn = document.getElementById('testVoiceBtn');
+  
+  voiceTestActive = true;
+  if (localStream) {
+    localStream.getAudioTracks()[0].enabled = true;
+  }
+  testBtn.textContent = '⏹️ Durdur';
+  testBtn.classList.add('testing');
+  startVisualizer();
 }
 
 // Peer bağlantısı oluştur
