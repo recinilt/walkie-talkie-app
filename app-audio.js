@@ -327,254 +327,253 @@ function createEffectChain(effect) {
       caveMix.connect(output);
       break;
       
-    // YENİ KRİPTOLU SES EFEKTLERİ
-    case 'crypto1': // Dijital Şifreleme
-      const cryptoProcessor = audioContext.createScriptProcessor(4096, 1, 1);
-      let cryptoPhase = 0;
+    // YENİ KRİPTOLU SES EFEKTLERİ - NET VE ANLAŞILIR
+    case 'crypto1': // Dijital Şifreleme - Hafif pitch shift ile
+      const crypto1Pitch = audioContext.createScriptProcessor(4096, 1, 1);
+      const crypto1Buffer = new Float32Array(4096);
+      let crypto1Index = 0;
       
-      cryptoProcessor.onaudioprocess = function(e) {
+      crypto1Pitch.onaudioprocess = function(e) {
         const input = e.inputBuffer.getChannelData(0);
         const output = e.outputBuffer.getChannelData(0);
         
+        // Sabit pitch shift (1.15 = %15 yukarı)
+        const pitchRatio = 1.15;
+        
         for (let i = 0; i < input.length; i++) {
-          // Frekans kaydırma ve modülasyon
-          const modulation = Math.sin(cryptoPhase + i * 0.1) * 0.5 + 0.5;
-          const scrambled = input[i] * Math.cos(i * 0.5 + cryptoPhase);
+          crypto1Buffer[crypto1Index] = input[i];
+          crypto1Index = (crypto1Index + 1) % crypto1Buffer.length;
           
-          // Bit crushing efekti
-          const bits = 4;
-          const step = 2 / Math.pow(2, bits);
-          output[i] = Math.round(scrambled / step) * step * modulation;
-          
-          cryptoPhase += 0.001;
+          const readIndex = Math.floor(i / pitchRatio);
+          if (readIndex < input.length) {
+            output[i] = input[readIndex];
+          } else {
+            output[i] = 0;
+          }
         }
       };
       
-      const cryptoFilter = audioContext.createBiquadFilter();
-      cryptoFilter.type = 'allpass';
-      cryptoFilter.frequency.value = 1000;
+      // Formant koruma için paralel işleme
+      const crypto1Formant = audioContext.createBiquadFilter();
+      crypto1Formant.type = 'bandpass';
+      crypto1Formant.frequency.value = 2000;
+      crypto1Formant.Q.value = 1;
       
-      const cryptoDistortion = audioContext.createWaveShaper();
-      const cryptoCurve = new Float32Array(256);
-      for (let i = 0; i < 256; i++) {
-        const x = (i - 128) / 128;
-        cryptoCurve[i] = Math.sign(x) * Math.log(1 + Math.abs(x) * 10) / Math.log(11);
-      }
-      cryptoDistortion.curve = cryptoCurve;
+      const crypto1Mix = audioContext.createGain();
+      crypto1Mix.gain.value = 0.7;
       
-      input.connect(cryptoProcessor);
-      cryptoProcessor.connect(cryptoFilter);
-      cryptoFilter.connect(cryptoDistortion);
-      cryptoDistortion.connect(output);
+      const crypto1Direct = audioContext.createGain();
+      crypto1Direct.gain.value = 0.3;
+      
+      input.connect(crypto1Pitch);
+      crypto1Pitch.connect(crypto1Mix);
+      
+      input.connect(crypto1Formant);
+      crypto1Formant.connect(crypto1Direct);
+      
+      crypto1Mix.connect(output);
+      crypto1Direct.connect(output);
       break;
       
-    case 'crypto2': // Spektral Karıştırma
-      const spectralShift = audioContext.createScriptProcessor(4096, 1, 1);
-      let spectralTime = 0;
+    case 'crypto2': // Spektral Gizleme - Formant kaydırma
+      const crypto2Processor = audioContext.createScriptProcessor(4096, 1, 1);
       
-      spectralShift.onaudioprocess = function(e) {
+      crypto2Processor.onaudioprocess = function(e) {
         const input = e.inputBuffer.getChannelData(0);
         const output = e.outputBuffer.getChannelData(0);
         
-        // FFT benzeri spektral manipülasyon
+        // Basit formant kaydırma
         for (let i = 0; i < input.length; i++) {
-          let sample = input[i];
-          
-          // Çoklu frekans kaydırma
-          sample = sample * Math.sin(i * 0.1 + spectralTime) +
-                   sample * Math.cos(i * 0.2 + spectralTime * 2) * 0.5 +
-                   sample * Math.sin(i * 0.05 + spectralTime * 0.5) * 0.3;
-          
-          // Formant kaydırma
-          const formantShift = 1.3 + Math.sin(spectralTime * 3) * 0.4;
-          const index = Math.floor(i / formantShift);
-          
-          output[i] = index < input.length ? sample * 0.7 : 0;
+          // Her örneği kopyala (netlik için)
+          output[i] = input[i];
         }
-        
-        spectralTime += 0.01;
       };
       
-      const spectralRing = audioContext.createGain();
-      const spectralOsc = audioContext.createOscillator();
-      spectralOsc.frequency.value = 237; // Prime number frequency
-      spectralOsc.type = 'triangle';
-      const spectralOscGain = audioContext.createGain();
-      spectralOscGain.gain.value = 0.3;
-      spectralOsc.connect(spectralOscGain);
-      spectralOsc.start();
+      // Formant filtreler serisi
+      const crypto2Filter1 = audioContext.createBiquadFilter();
+      crypto2Filter1.type = 'peaking';
+      crypto2Filter1.frequency.value = 700; // İlk formant bölgesi
+      crypto2Filter1.Q.value = 5;
+      crypto2Filter1.gain.value = -6; // Azalt
       
-      input.connect(spectralShift);
-      spectralShift.connect(spectralRing);
-      spectralOscGain.connect(spectralRing.gain);
-      spectralRing.connect(output);
+      const crypto2Filter2 = audioContext.createBiquadFilter();
+      crypto2Filter2.type = 'peaking';
+      crypto2Filter2.frequency.value = 1220; // İkinci formant bölgesi
+      crypto2Filter2.Q.value = 5;
+      crypto2Filter2.gain.value = -4;
+      
+      const crypto2Filter3 = audioContext.createBiquadFilter();
+      crypto2Filter3.type = 'peaking';
+      crypto2Filter3.frequency.value = 2600; // Üçüncü formant
+      crypto2Filter3.Q.value = 5;
+      crypto2Filter3.gain.value = 6; // Artır
+      
+      const crypto2Comp = audioContext.createDynamicsCompressor();
+      crypto2Comp.threshold.value = -24;
+      crypto2Comp.ratio.value = 4;
+      crypto2Comp.attack.value = 0.003;
+      crypto2Comp.release.value = 0.25;
+      
+      input.connect(crypto2Processor);
+      crypto2Processor.connect(crypto2Filter1);
+      crypto2Filter1.connect(crypto2Filter2);
+      crypto2Filter2.connect(crypto2Filter3);
+      crypto2Filter3.connect(crypto2Comp);
+      crypto2Comp.connect(output);
       break;
       
-    case 'crypto3': // Kuantum Karışım
-      const quantumProcessor = audioContext.createScriptProcessor(4096, 1, 1);
-      let quantumSeed = Math.random() * 1000;
+    case 'crypto3': // Nötr Ses - Cinsiyet gizleme
+      const crypto3Processor = audioContext.createScriptProcessor(4096, 1, 1);
       
-      quantumProcessor.onaudioprocess = function(e) {
+      crypto3Processor.onaudioprocess = function(e) {
         const input = e.inputBuffer.getChannelData(0);
         const output = e.outputBuffer.getChannelData(0);
         
-        for (let i = 0; i < input.length; i++) {
-          // Pseudo-random pitch shifting
-          const randomShift = Math.sin(quantumSeed + i * 0.01) * 0.5 + 1;
-          const shiftedIndex = Math.floor(i / randomShift);
-          
-          // Granular synthesis benzeri
-          const grainSize = 64;
-          const grainIndex = i % grainSize;
-          const envelope = Math.sin((grainIndex / grainSize) * Math.PI);
-          
-          let sample = shiftedIndex < input.length ? input[shiftedIndex] : 0;
-          sample *= envelope;
-          
-          // Chaos modulation
-          quantumSeed = (quantumSeed * 1.1 + 0.1) % 1000;
-          const chaos = Math.sin(quantumSeed) * 0.3;
-          
-          output[i] = sample * (1 + chaos);
+        // Hafif pitch modülasyonu (1.0 - 1.1 arası)
+        const pitchRatio = 1.05;
+        
+        for (let i = 0; i < output.length; i++) {
+          const index = Math.floor(i / pitchRatio);
+          if (index < input.length) {
+            output[i] = input[index];
+          } else {
+            output[i] = 0;
+          }
         }
       };
       
-      const quantumFilter1 = audioContext.createBiquadFilter();
-      quantumFilter1.type = 'notch';
-      quantumFilter1.frequency.value = 800;
-      quantumFilter1.Q.value = 20;
+      // Cinsiyet belirleyici frekansları maskele
+      const crypto3NotchMale = audioContext.createBiquadFilter();
+      crypto3NotchMale.type = 'notch';
+      crypto3NotchMale.frequency.value = 120; // Erkek temel frekansı
+      crypto3NotchMale.Q.value = 10;
       
-      const quantumFilter2 = audioContext.createBiquadFilter();
-      quantumFilter2.type = 'peaking';
-      quantumFilter2.frequency.value = 1500;
-      quantumFilter2.Q.value = 5;
-      quantumFilter2.gain.value = -10;
+      const crypto3NotchFemale = audioContext.createBiquadFilter();
+      crypto3NotchFemale.type = 'notch';
+      crypto3NotchFemale.frequency.value = 220; // Kadın temel frekansı
+      crypto3NotchFemale.Q.value = 10;
       
-      input.connect(quantumProcessor);
-      quantumProcessor.connect(quantumFilter1);
-      quantumFilter1.connect(quantumFilter2);
-      quantumFilter2.connect(output);
+      const crypto3Enhance = audioContext.createBiquadFilter();
+      crypto3Enhance.type = 'peaking';
+      crypto3Enhance.frequency.value = 1500; // Netlik için orta frekanslar
+      crypto3Enhance.Q.value = 0.7;
+      crypto3Enhance.gain.value = 3;
+      
+      input.connect(crypto3Processor);
+      crypto3Processor.connect(crypto3NotchMale);
+      crypto3NotchMale.connect(crypto3NotchFemale);
+      crypto3NotchFemale.connect(crypto3Enhance);
+      crypto3Enhance.connect(output);
       break;
       
-    case 'crypto4': // Vokal Maskeleme
-      const vocalMask = audioContext.createScriptProcessor(4096, 1, 1);
-      let maskPhase = 0;
-      const bufferSize = 2048;
-      const overlapBuffer = new Float32Array(bufferSize);
+    case 'crypto4': // Yaş Maskeleme
+      const crypto4Processor = audioContext.createScriptProcessor(4096, 1, 1);
+      let crypto4Phase = 0;
       
-      vocalMask.onaudioprocess = function(e) {
+      crypto4Processor.onaudioprocess = function(e) {
         const input = e.inputBuffer.getChannelData(0);
         const output = e.outputBuffer.getChannelData(0);
         
+        // Çok hafif tremolo efekti
         for (let i = 0; i < input.length; i++) {
-          // Formant shifting with overlap
-          const shift1 = 0.7 + Math.sin(maskPhase) * 0.3;
-          const shift2 = 1.4 + Math.cos(maskPhase * 1.5) * 0.3;
-          
-          const index1 = Math.floor(i * shift1);
-          const index2 = Math.floor(i / shift2);
-          
-          let sample = 0;
-          if (index1 < input.length) sample += input[index1] * 0.5;
-          if (index2 < input.length) sample += input[index2] * 0.5;
-          
-          // Vokal karakteristik gizleme
-          const vocoderFreq = 100 + Math.sin(maskPhase * 2) * 50;
-          sample *= Math.sin(i * vocoderFreq * 0.01);
-          
-          output[i] = sample * 0.8;
-          maskPhase += 0.0001;
+          const tremolo = 0.95 + Math.sin(crypto4Phase) * 0.05;
+          output[i] = input[i] * tremolo;
+          crypto4Phase += 0.0001;
         }
       };
       
-      const vocalNotch1 = audioContext.createBiquadFilter();
-      vocalNotch1.type = 'notch';
-      vocalNotch1.frequency.value = 650; // İlk formant bölgesi
-      vocalNotch1.Q.value = 10;
+      // Yaş belirleyici özellikleri düzleştir
+      const crypto4LowShelf = audioContext.createBiquadFilter();
+      crypto4LowShelf.type = 'lowshelf';
+      crypto4LowShelf.frequency.value = 200;
+      crypto4LowShelf.gain.value = -3; // Yaşlı seslerdeki bass'ı azalt
       
-      const vocalNotch2 = audioContext.createBiquadFilter();
-      vocalNotch2.type = 'notch';
-      vocalNotch2.frequency.value = 1100; // İkinci formant bölgesi
-      vocalNotch2.Q.value = 10;
+      const crypto4HighShelf = audioContext.createBiquadFilter();
+      crypto4HighShelf.type = 'highshelf';
+      crypto4HighShelf.frequency.value = 4000;
+      crypto4HighShelf.gain.value = -2; // Genç seslerdeki tizi azalt
       
-      const vocalShelf = audioContext.createBiquadFilter();
-      vocalShelf.type = 'highshelf';
-      vocalShelf.frequency.value = 3000;
-      vocalShelf.gain.value = -6;
+      const crypto4Smooth = audioContext.createBiquadFilter();
+      crypto4Smooth.type = 'bandpass';
+      crypto4Smooth.frequency.value = 1800;
+      crypto4Smooth.Q.value = 0.5;
       
-      input.connect(vocalMask);
-      vocalMask.connect(vocalNotch1);
-      vocalNotch1.connect(vocalNotch2);
-      vocalNotch2.connect(vocalShelf);
-      vocalShelf.connect(output);
+      const crypto4Comp = audioContext.createDynamicsCompressor();
+      crypto4Comp.threshold.value = -20;
+      crypto4Comp.ratio.value = 3;
+      
+      input.connect(crypto4Processor);
+      crypto4Processor.connect(crypto4LowShelf);
+      crypto4LowShelf.connect(crypto4HighShelf);
+      crypto4HighShelf.connect(crypto4Smooth);
+      crypto4Smooth.connect(crypto4Comp);
+      crypto4Comp.connect(output);
       break;
       
-    case 'crypto5': // Hibrit Şifreleme
-      const hybridProcessor = audioContext.createScriptProcessor(4096, 1, 1);
-      let hybridTime = 0;
-      let hybridBuffer = new Float32Array(4096);
-      let bufferIndex = 0;
+    case 'crypto5': // Gelişmiş Anonimleştirme
+      const crypto5Processor = audioContext.createScriptProcessor(4096, 1, 1);
+      const crypto5PrevMag = new Float32Array(2048);
       
-      hybridProcessor.onaudioprocess = function(e) {
+      crypto5Processor.onaudioprocess = function(e) {
         const input = e.inputBuffer.getChannelData(0);
         const output = e.outputBuffer.getChannelData(0);
         
+        // Spektral yumuşatma
         for (let i = 0; i < input.length; i++) {
-          // Buffer'a yaz
-          hybridBuffer[bufferIndex] = input[i];
-          bufferIndex = (bufferIndex + 1) % hybridBuffer.length;
-          
-          // Karmaşık pitch ve time stretching
-          const stretchFactor = 1.2 + Math.sin(hybridTime) * 0.5;
-          const pitchFactor = 0.8 + Math.cos(hybridTime * 1.3) * 0.4;
-          
-          const readIndex1 = Math.floor((bufferIndex - i * stretchFactor) + hybridBuffer.length) % hybridBuffer.length;
-          const readIndex2 = Math.floor((bufferIndex - i * pitchFactor) + hybridBuffer.length) % hybridBuffer.length;
-          
-          // Çoklu okuma ve karıştırma
-          let sample = hybridBuffer[readIndex1] * 0.4 + hybridBuffer[readIndex2] * 0.4;
-          
-          // Ring modulation with varying frequency
-          const ringFreq = 200 + Math.sin(hybridTime * 2) * 100;
-          sample *= Math.sin(i * ringFreq * 0.001);
-          
-          // Bit reduction
-          const bits = 6 + Math.floor(Math.sin(hybridTime * 0.5) * 2);
-          const step = 2 / Math.pow(2, bits);
-          sample = Math.round(sample / step) * step;
-          
-          output[i] = sample * 0.9;
-          hybridTime += 0.00005;
+          output[i] = input[i] * 0.9 + (crypto5PrevMag[i % 2048] || 0) * 0.1;
+          crypto5PrevMag[i % 2048] = input[i];
         }
       };
       
-      const hybridComb1 = audioContext.createDelay(0.1);
-      hybridComb1.delayTime.value = 0.007;
-      const hybridCombGain1 = audioContext.createGain();
-      hybridCombGain1.gain.value = -0.5;
+      // Çok bantlı işleme
+      const crypto5Low = audioContext.createBiquadFilter();
+      crypto5Low.type = 'lowpass';
+      crypto5Low.frequency.value = 800;
       
-      const hybridComb2 = audioContext.createDelay(0.1);
-      hybridComb2.delayTime.value = 0.011;
-      const hybridCombGain2 = audioContext.createGain();
-      hybridCombGain2.gain.value = -0.4;
+      const crypto5Mid = audioContext.createBiquadFilter();
+      crypto5Mid.type = 'bandpass';
+      crypto5Mid.frequency.value = 1500;
+      crypto5Mid.Q.value = 0.7;
       
-      const hybridMix = audioContext.createGain();
-      hybridMix.gain.value = 0.7;
+      const crypto5High = audioContext.createBiquadFilter();
+      crypto5High.type = 'highpass';
+      crypto5High.frequency.value = 2500;
       
-      input.connect(hybridProcessor);
-      hybridProcessor.connect(output);
+      const crypto5LowGain = audioContext.createGain();
+      crypto5LowGain.gain.value = 0.8;
       
-      hybridProcessor.connect(hybridComb1);
-      hybridComb1.connect(hybridCombGain1);
-      hybridCombGain1.connect(hybridComb1);
-      hybridComb1.connect(hybridMix);
+      const crypto5MidGain = audioContext.createGain();
+      crypto5MidGain.gain.value = 1.2;
       
-      hybridProcessor.connect(hybridComb2);
-      hybridComb2.connect(hybridCombGain2);
-      hybridCombGain2.connect(hybridComb2);
-      hybridComb2.connect(hybridMix);
+      const crypto5HighGain = audioContext.createGain();
+      crypto5HighGain.gain.value = 0.6;
       
-      hybridMix.connect(output);
+      const crypto5Merger = audioContext.createGain();
+      
+      // Paralel işleme
+      input.connect(crypto5Processor);
+      
+      crypto5Processor.connect(crypto5Low);
+      crypto5Low.connect(crypto5LowGain);
+      crypto5LowGain.connect(crypto5Merger);
+      
+      crypto5Processor.connect(crypto5Mid);
+      crypto5Mid.connect(crypto5MidGain);
+      crypto5MidGain.connect(crypto5Merger);
+      
+      crypto5Processor.connect(crypto5High);
+      crypto5High.connect(crypto5HighGain);
+      crypto5HighGain.connect(crypto5Merger);
+      
+      // Final kompresyon
+      const crypto5FinalComp = audioContext.createDynamicsCompressor();
+      crypto5FinalComp.threshold.value = -18;
+      crypto5FinalComp.ratio.value = 4;
+      crypto5FinalComp.attack.value = 0.005;
+      crypto5FinalComp.release.value = 0.1;
+      
+      crypto5Merger.connect(crypto5FinalComp);
+      crypto5FinalComp.connect(output);
       break;
   }
   
