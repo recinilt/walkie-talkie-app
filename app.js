@@ -4,6 +4,8 @@
 const SERVER_URL = 'https://walkie-talkie-server-4p8m.onrender.com';
 let socket = null;
 let localStream = null;
+let originalStream = null; // Orijinal mikrofon akışı
+let processedStream = null; // İşlenmiş ses akışı
 let peerConnections = new Map();
 let audioContext = null;
 let analyser = null;
@@ -575,7 +577,7 @@ function addMessageToChat(message) {
   chatMessages.scrollTop = chatMessages.scrollHeight;
 }
 
-// Toggle konuşma
+// Toggle konuşma - GÜNCELLENDİ
 function toggleTalk() {
   if (!isConnected || !socket) return;
   
@@ -583,11 +585,25 @@ function toggleTalk() {
   if (!micPermissionGranted) {
     requestMicrophonePermission().then(granted => {
       if (granted) {
-        socket.emit('toggle-talk');
+        // AudioContext'i başlat
+        if (audioContext && audioContext.state === 'suspended') {
+          audioContext.resume().then(() => {
+            socket.emit('toggle-talk');
+          });
+        } else {
+          socket.emit('toggle-talk');
+        }
       }
     });
   } else {
-    socket.emit('toggle-talk');
+    // AudioContext'i kontrol et
+    if (audioContext && audioContext.state === 'suspended') {
+      audioContext.resume().then(() => {
+        socket.emit('toggle-talk');
+      });
+    } else {
+      socket.emit('toggle-talk');
+    }
   }
 }
 
@@ -822,10 +838,10 @@ function updateModeInfo(mode) {
   modeInfo.style.display = 'block';
 }
 
-// Mikrofon iznini al ve peer bağlantılarını kur - GÜNCELLENMİŞ
+// Mikrofon iznini al ve peer bağlantılarını kur - TAMAMEN YENİDEN YAZILDI
 async function requestMicrophonePermission() {
   try {
-    localStream = await navigator.mediaDevices.getUserMedia({ 
+    originalStream = await navigator.mediaDevices.getUserMedia({ 
       audio: {
         echoCancellation: true,
         noiseSuppression: true,
@@ -843,11 +859,16 @@ async function requestMicrophonePermission() {
     analyser.fftSize = 256;
     dataArray = new Uint8Array(analyser.frequencyBinCount);
     
+    // localStream'i orijinal akış olarak ayarla
+    localStream = originalStream;
+    
     // Ses efektleri için processor node oluştur
     setupAudioProcessor();
 
     // Başlangıçta mikrofonu kapat
-    localStream.getAudioTracks()[0].enabled = false;
+    if (processedStream) {
+      processedStream.getAudioTracks()[0].enabled = false;
+    }
 
     // Mevcut kullanıcılarla peer bağlantısı kur
     const participants = document.querySelectorAll('.participant');
@@ -866,67 +887,113 @@ async function requestMicrophonePermission() {
   }
 }
 
-// Ses işlemci kurulumu - DÜZELTİLMİŞ
-function setupAudioProcessor_eski() {
-  if (!localStream || !audioContext) return;
+// Ses işlemci kurulumu - TAMAMEN YENİDEN YAZILDI
+function setupAudioProcessor() {
+  if (!originalStream || !audioContext) return;
   
-  const source = audioContext.createMediaStreamSource(localStream);
+  // Mevcut işlenmiş akışı temizle
+  if (processedStream) {
+    processedStream.getTracks().forEach(track => track.stop());
+  }
+  
+  const source = audioContext.createMediaStreamSource(originalStream);
   const destination = audioContext.createMediaStreamDestination();
+  
+  // Master gain kontrolü
+  const masterGain = audioContext.createGain();
+  masterGain.gain.value = 1.2;
   
   // Ses efekti zinciri oluştur
   audioProcessorNode = createEffectChain(voiceEffect);
   
   // Bağlantıları kur
   source.connect(audioProcessorNode.input);
-  audioProcessorNode.output.connect(destination);
-  audioProcessorNode.output.connect(analyser);
+  audioProcessorNode.output.connect(masterGain);
+  masterGain.connect(destination);
+  
+  // Analyser'ı bağla
+  masterGain.connect(analyser);
   
   // İşlenmiş ses akışını al
-  const processedStream = destination.stream;
-  const processedTrack = processedStream.getAudioTracks()[0];
+  processedStream = destination.stream;
+  
+  // Track'in enabled durumunu koru
+  const wasEnabled = localStream && localStream.getAudioTracks()[0] ? 
+    localStream.getAudioTracks()[0].enabled : false;
+  
+  // localStream'i işlenmiş akış olarak güncelle
+  localStream = processedStream;
+  
+  // Enabled durumunu geri yükle
+  if (localStream.getAudioTracks()[0]) {
+    localStream.getAudioTracks()[0].enabled = wasEnabled;
+  }
   
   // Tüm peer bağlantılarını güncelle
-  peerConnections.forEach((pc, userId) => {
-    const senders = pc.getSenders();
-    const audioSender = senders.find(sender => sender.track && sender.track.kind === 'audio');
-    if (audioSender && processedTrack) {
-      audioSender.replaceTrack(processedTrack);
-    }
-  });
-  
-  // localStream'i güncelle
-  localStream = processedStream;
+  updateAllPeerConnections();
 }
 
-// Ses efekti zinciri oluştur - DÜZELTİLMİŞ
-function createEffectChain_eski(effect) {
+// Tüm peer bağlantılarını güncelle
+function updateAllPeerConnections() {
+  if (!localStream) return;
+  
+  const audioTrack = localStream.getAudioTracks()[0];
+  if (!audioTrack) return;
+  
+  peerConnections.forEach((pc, userId) => {
+    const senders = pc.getSenders();
+    const audioSender = senders.find(sender => 
+      sender.track && sender.track.kind === 'audio'
+    );
+    
+    if (audioSender) {
+      audioSender.replaceTrack(audioTrack).catch(err => {
+        console.error('Track değiştirme hatası:', err);
+      });
+    }
+  });
+}
+
+// Ses efekti zinciri oluştur - SES SEVİYESİ DÜZELTİLMİŞ
+function createEffectChain(effect) {
   const input = audioContext.createGain();
   input.gain.value = 1.0;
   
   const outputGain = audioContext.createGain();
-  outputGain.gain.value = 1.0;
+  outputGain.gain.value = 1.5; // Genel çıkış seviyesini artır
   
   let currentNode = input;
   
   switch(effect) {
     case 'robot':
-      // Robot sesi - Basitleştirilmiş versiyon
+      // Robot sesi
+      const robotGain = audioContext.createGain();
+      robotGain.gain.value = 2.0; // Giriş kazancını artır
+      
       const robotFilter = audioContext.createBiquadFilter();
       robotFilter.type = 'lowpass';
       robotFilter.frequency.value = 1000;
       robotFilter.Q.value = 10;
       
       const robotDistortion = audioContext.createWaveShaper();
-      robotDistortion.curve = makeDistortionCurve(50);
+      robotDistortion.curve = makeDistortionCurve(40); // Distortion'ı azalt
       robotDistortion.oversample = '4x';
       
-      currentNode.connect(robotFilter);
+      const robotOutput = audioContext.createGain();
+      robotOutput.gain.value = 1.5;
+      
+      currentNode.connect(robotGain);
+      robotGain.connect(robotFilter);
       robotFilter.connect(robotDistortion);
-      robotDistortion.connect(outputGain);
+      robotDistortion.connect(robotOutput);
+      robotOutput.connect(outputGain);
       break;
       
     case 'alien':
       // Uzaylı sesi
+      const alienGain = audioContext.createGain();
+      alienGain.gain.value = 2.0;
+      
       const alienFilter1 = audioContext.createBiquadFilter();
       alienFilter1.type = 'bandpass';
       alienFilter1.frequency.value = 1500;
@@ -935,67 +1002,92 @@ function createEffectChain_eski(effect) {
       const alienDelay = audioContext.createDelay(1);
       alienDelay.delayTime.value = 0.05;
       
-      const alienGain = audioContext.createGain();
-      alienGain.gain.value = 0.6;
+      const alienMix = audioContext.createGain();
+      alienMix.gain.value = 0.8;
       
-      currentNode.connect(alienFilter1);
+      currentNode.connect(alienGain);
+      alienGain.connect(alienFilter1);
       alienFilter1.connect(alienDelay);
-      alienDelay.connect(alienGain);
-      alienFilter1.connect(alienGain);
-      alienGain.connect(outputGain);
+      alienDelay.connect(alienMix);
+      alienFilter1.connect(alienMix);
+      alienMix.connect(outputGain);
       break;
       
     case 'deep':
       // Kalın ses
+      const deepGain = audioContext.createGain();
+      deepGain.gain.value = 2.5; // Daha yüksek gain
+      
       const deepFilter = audioContext.createBiquadFilter();
       deepFilter.type = 'lowpass';
       deepFilter.frequency.value = 500;
       deepFilter.Q.value = 10;
       
-      const deepGain = audioContext.createGain();
-      deepGain.gain.value = 1.5;
+      const deepBoost = audioContext.createGain();
+      deepBoost.gain.value = 1.8;
       
-      currentNode.connect(deepFilter);
-      deepFilter.connect(deepGain);
-      deepGain.connect(outputGain);
+      currentNode.connect(deepGain);
+      deepGain.connect(deepFilter);
+      deepFilter.connect(deepBoost);
+      deepBoost.connect(outputGain);
       break;
       
     case 'high':
       // İnce ses
+      const highGain = audioContext.createGain();
+      highGain.gain.value = 2.0;
+      
       const highFilter = audioContext.createBiquadFilter();
       highFilter.type = 'highpass';
       highFilter.frequency.value = 1000;
       highFilter.Q.value = 10;
       
-      currentNode.connect(highFilter);
-      highFilter.connect(outputGain);
+      const highBoost = audioContext.createGain();
+      highBoost.gain.value = 1.5;
+      
+      currentNode.connect(highGain);
+      highGain.connect(highFilter);
+      highFilter.connect(highBoost);
+      highBoost.connect(outputGain);
       break;
       
     case 'echo':
       // Yankı efekti
+      const echoGain = audioContext.createGain();
+      echoGain.gain.value = 1.5;
+      
       const echoDelay = audioContext.createDelay(1);
       echoDelay.delayTime.value = 0.3;
       
-      const echoGain = audioContext.createGain();
-      echoGain.gain.value = 0.5;
+      const echoFeedback = audioContext.createGain();
+      echoFeedback.gain.value = 0.4;
       
       const echoFilter = audioContext.createBiquadFilter();
       echoFilter.type = 'highpass';
       echoFilter.frequency.value = 500;
       
+      const echoMix = audioContext.createGain();
+      echoMix.gain.value = 1.2;
+      
       // Dry signal
-      currentNode.connect(outputGain);
+      currentNode.connect(echoGain);
+      echoGain.connect(echoMix);
       
       // Wet signal (echo)
-      currentNode.connect(echoDelay);
-      echoDelay.connect(echoGain);
-      echoGain.connect(echoFilter);
+      echoGain.connect(echoDelay);
+      echoDelay.connect(echoFeedback);
+      echoFeedback.connect(echoFilter);
       echoFilter.connect(echoDelay);
-      echoFilter.connect(outputGain);
+      echoFilter.connect(echoMix);
+      
+      echoMix.connect(outputGain);
       break;
       
     case 'radio':
       // Radyo sesi
+      const radioGain = audioContext.createGain();
+      radioGain.gain.value = 3.0; // Yüksek gain
+      
       const radioFilter1 = audioContext.createBiquadFilter();
       radioFilter1.type = 'bandpass';
       radioFilter1.frequency.value = 2000;
@@ -1007,17 +1099,27 @@ function createEffectChain_eski(effect) {
       radioFilter2.Q.value = 10;
       
       const radioCompressor = audioContext.createDynamicsCompressor();
-      radioCompressor.threshold.value = -20;
-      radioCompressor.ratio.value = 8;
+      radioCompressor.threshold.value = -15; // Threshold'u yükselt
+      radioCompressor.ratio.value = 6;
+      radioCompressor.attack.value = 0.003;
+      radioCompressor.release.value = 0.25;
       
-      currentNode.connect(radioFilter1);
+      const radioOutput = audioContext.createGain();
+      radioOutput.gain.value = 1.5;
+      
+      currentNode.connect(radioGain);
+      radioGain.connect(radioFilter1);
       radioFilter1.connect(radioFilter2);
       radioFilter2.connect(radioCompressor);
-      radioCompressor.connect(outputGain);
+      radioCompressor.connect(radioOutput);
+      radioOutput.connect(outputGain);
       break;
       
     case 'underwater':
       // Su altı sesi
+      const waterGain = audioContext.createGain();
+      waterGain.gain.value = 2.0;
+      
       const waterFilter = audioContext.createBiquadFilter();
       waterFilter.type = 'lowpass';
       waterFilter.frequency.value = 400;
@@ -1026,18 +1128,22 @@ function createEffectChain_eski(effect) {
       const waterDelay = audioContext.createDelay(1);
       waterDelay.delayTime.value = 0.03;
       
-      const waterGain = audioContext.createGain();
-      waterGain.gain.value = 0.8;
+      const waterMix = audioContext.createGain();
+      waterMix.gain.value = 1.5;
       
-      currentNode.connect(waterFilter);
+      currentNode.connect(waterGain);
+      waterGain.connect(waterFilter);
       waterFilter.connect(waterDelay);
-      waterDelay.connect(waterGain);
-      waterFilter.connect(waterGain);
-      waterGain.connect(outputGain);
+      waterDelay.connect(waterMix);
+      waterFilter.connect(waterMix);
+      waterMix.connect(outputGain);
       break;
       
     case 'telephone':
       // Telefon sesi
+      const telGain = audioContext.createGain();
+      telGain.gain.value = 3.0;
+      
       const telFilter1 = audioContext.createBiquadFilter();
       telFilter1.type = 'bandpass';
       telFilter1.frequency.value = 2000;
@@ -1049,21 +1155,30 @@ function createEffectChain_eski(effect) {
       telFilter2.Q.value = 15;
       
       const telCompressor = audioContext.createDynamicsCompressor();
-      telCompressor.threshold.value = -30;
-      telCompressor.ratio.value = 10;
+      telCompressor.threshold.value = -20;
+      telCompressor.ratio.value = 8;
       
-      currentNode.connect(telFilter1);
+      const telOutput = audioContext.createGain();
+      telOutput.gain.value = 1.5;
+      
+      currentNode.connect(telGain);
+      telGain.connect(telFilter1);
       telFilter1.connect(telFilter2);
       telFilter2.connect(telCompressor);
-      telCompressor.connect(outputGain);
+      telCompressor.connect(telOutput);
+      telOutput.connect(outputGain);
       break;
       
     case 'cave':
       // Mağara sesi
-      const caveGain = audioContext.createGain();
-      caveGain.gain.value = 0.7;
+      const caveInput = audioContext.createGain();
+      caveInput.gain.value = 1.8;
       
-      currentNode.connect(caveGain);
+      const caveGain = audioContext.createGain();
+      caveGain.gain.value = 0.8;
+      
+      currentNode.connect(caveInput);
+      caveInput.connect(caveGain);
       caveGain.connect(outputGain);
       
       // Multiple echoes
@@ -1072,9 +1187,9 @@ function createEffectChain_eski(effect) {
         delay.delayTime.value = (i + 1) * 0.15;
         
         const gain = audioContext.createGain();
-        gain.gain.value = 0.4 / (i + 1);
+        gain.gain.value = 0.5 / (i + 1);
         
-        caveGain.connect(delay);
+        caveInput.connect(delay);
         delay.connect(gain);
         gain.connect(outputGain);
       }
@@ -1082,8 +1197,11 @@ function createEffectChain_eski(effect) {
       
     case 'normal':
     default:
-      // Normal ses - direkt bağlantı
-      currentNode.connect(outputGain);
+      // Normal ses - direkt bağlantı ama gain artırılmış
+      const normalGain = audioContext.createGain();
+      normalGain.gain.value = 1.5;
+      currentNode.connect(normalGain);
+      normalGain.connect(outputGain);
       break;
   }
   
@@ -1107,18 +1225,24 @@ function makeDistortionCurve(amount) {
   return curve;
 }
 
-// Ses efektini değiştir - DÜZELTİLMİŞ
+// Ses efektini değiştir - GÜNCELLENDİ
 function changeVoiceEffect() {
   const selectedEffect = document.getElementById('voiceEffect').value;
   voiceEffect = selectedEffect;
   
   // Eğer mikrofon izni varsa ve audioContext aktifse
-  if (micPermissionGranted && audioContext && audioContext.state === 'running' && localStream) {
+  if (micPermissionGranted && audioContext && originalStream) {
     try {
-      setupAudioProcessor();
-      
-      // Kullanıcıya bilgi ver
-      showNotification(`Ses efekti değişti: ${getEffectName(selectedEffect)}`);
+      // AudioContext'i resume et
+      if (audioContext.state === 'suspended') {
+        audioContext.resume().then(() => {
+          setupAudioProcessor();
+          showNotification(`Ses efekti değişti: ${getEffectName(selectedEffect)}`);
+        });
+      } else {
+        setupAudioProcessor();
+        showNotification(`Ses efekti değişti: ${getEffectName(selectedEffect)}`);
+      }
     } catch (error) {
       console.error('Ses efekti değiştirme hatası:', error);
       showError('Ses efekti değiştirilemedi. Lütfen sayfayı yenileyin.');
@@ -1208,24 +1332,26 @@ function performVoiceTest() {
   startRecording();
 }
 
-// Ses kaydını başlat
+// Ses kaydını başlat - GÜNCELLENDİ
 function startRecording() {
   if (!localStream) return;
   
   recordedChunks = [];
   
-  // MediaRecorder oluştur
+  // MediaRecorder'ı işlenmiş akıştan oluştur
+  const options = {
+    mimeType: 'audio/webm'
+  };
+  
   try {
-    mediaRecorder = new MediaRecorder(localStream, {
-      mimeType: 'audio/webm'
-    });
+    mediaRecorder = new MediaRecorder(localStream, options);
   } catch (err) {
+    // Fallback
     try {
-      mediaRecorder = new MediaRecorder(localStream);
+      options.mimeType = 'audio/ogg';
+      mediaRecorder = new MediaRecorder(localStream, options);
     } catch (err2) {
-      console.error('MediaRecorder oluşturulamadı:', err2);
-      showError('Ses kaydı desteklenmiyor!');
-      return;
+      mediaRecorder = new MediaRecorder(localStream);
     }
   }
   
@@ -1236,8 +1362,11 @@ function startRecording() {
   };
   
   mediaRecorder.onstop = () => {
-    // Kaydı oynat
     playRecording();
+  };
+  
+  mediaRecorder.onerror = (event) => {
+    console.error('MediaRecorder hatası:', event.error);
   };
   
   mediaRecorder.start();
@@ -1258,14 +1387,14 @@ function startRecording() {
 }
 
 // Kaydı oynat
-function playRecording_eski() {
+function playRecording() {
   if (recordedChunks.length === 0) return;
   
   const blob = new Blob(recordedChunks, { type: 'audio/webm' });
   const audioUrl = URL.createObjectURL(blob);
   
   const audio = new Audio(audioUrl);
-  audio.volume = 0.8;
+  audio.volume = 1.0; // Maksimum ses seviyesi
   
   audio.onended = () => {
     // Oynatma bittiğinde
@@ -1286,16 +1415,17 @@ function playRecording_eski() {
   });
 }
 
-// Peer bağlantısı oluştur
+// Peer bağlantısı oluştur - GÜNCELLENDİ
 function createPeerConnection(userId, createOffer) {
   if (!localStream) return null;
 
   const pc = new RTCPeerConnection(rtcConfig);
 
   // İşlenmiş ses akışını ekle
-  localStream.getTracks().forEach(track => {
-    pc.addTrack(track, localStream);
-  });
+  const audioTrack = localStream.getAudioTracks()[0];
+  if (audioTrack) {
+    pc.addTrack(audioTrack, localStream);
+  }
 
   // Uzak ses akışını al
   pc.ontrack = (event) => {
@@ -1320,20 +1450,28 @@ function createPeerConnection(userId, createOffer) {
     pc.createOffer().then(offer => {
       pc.setLocalDescription(offer);
       socket.emit('offer', { to: userId, offer });
+    }).catch(err => {
+      console.error('Offer oluşturma hatası:', err);
     });
   }
 
   return pc;
 }
 
-// Odadan ayrıl
+// Odadan ayrıl - GÜNCELLENDİ
 function leaveRoom() {
   if (socket) {
     socket.disconnect();
   }
   
-  if (localStream) {
-    localStream.getTracks().forEach(track => track.stop());
+  // Orijinal akışı durdur
+  if (originalStream) {
+    originalStream.getTracks().forEach(track => track.stop());
+  }
+  
+  // İşlenmiş akışı durdur
+  if (processedStream) {
+    processedStream.getTracks().forEach(track => track.stop());
   }
   
   peerConnections.forEach(pc => pc.close());
@@ -1343,7 +1481,7 @@ function leaveRoom() {
   document.querySelectorAll('audio').forEach(audio => audio.remove());
   
   // AudioContext'i kapat
-  if (audioContext) {
+  if (audioContext && audioContext.state !== 'closed') {
     audioContext.close();
   }
   
@@ -1361,6 +1499,8 @@ function leaveRoom() {
   
   // Değişkenleri sıfırla
   micPermissionGranted = false;
+  originalStream = null;
+  processedStream = null;
   localStream = null;
   audioContext = null;
   analyser = null;
@@ -1527,6 +1667,11 @@ function escapeHtml(text) {
   div.textContent = text;
   return div.innerHTML;
 }
+
+
+
+
+
 
 // Ses görselleştirici
 function startVisualizer() {
