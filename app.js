@@ -1203,6 +1203,256 @@ function createEffectChain(effect) {
       currentNode.connect(normalGain);
       normalGain.connect(outputGain);
       break;
+    
+    // YENİ KRİPTOLU SES EFEKTLERİ
+    case 'crypto1': // Dijital Şifreleme
+      const cryptoProcessor = audioContext.createScriptProcessor(4096, 1, 1);
+      let cryptoPhase = 0;
+      
+      cryptoProcessor.onaudioprocess = function(e) {
+        const input = e.inputBuffer.getChannelData(0);
+        const output = e.outputBuffer.getChannelData(0);
+        
+        for (let i = 0; i < input.length; i++) {
+          // Frekans kaydırma ve modülasyon
+          const modulation = Math.sin(cryptoPhase + i * 0.1) * 0.5 + 0.5;
+          const scrambled = input[i] * Math.cos(i * 0.5 + cryptoPhase);
+          
+          // Bit crushing efekti
+          const bits = 4;
+          const step = 2 / Math.pow(2, bits);
+          output[i] = Math.round(scrambled / step) * step * modulation;
+          
+          cryptoPhase += 0.001;
+        }
+      };
+      
+      const cryptoFilter = audioContext.createBiquadFilter();
+      cryptoFilter.type = 'allpass';
+      cryptoFilter.frequency.value = 1000;
+      
+      const cryptoDistortion = audioContext.createWaveShaper();
+      const cryptoCurve = new Float32Array(256);
+      for (let i = 0; i < 256; i++) {
+        const x = (i - 128) / 128;
+        cryptoCurve[i] = Math.sign(x) * Math.log(1 + Math.abs(x) * 10) / Math.log(11);
+      }
+      cryptoDistortion.curve = cryptoCurve;
+      
+      input.connect(cryptoProcessor);
+      cryptoProcessor.connect(cryptoFilter);
+      cryptoFilter.connect(cryptoDistortion);
+      cryptoDistortion.connect(output);
+      break;
+      
+    case 'crypto2': // Spektral Karıştırma
+      const spectralShift = audioContext.createScriptProcessor(4096, 1, 1);
+      let spectralTime = 0;
+      
+      spectralShift.onaudioprocess = function(e) {
+        const input = e.inputBuffer.getChannelData(0);
+        const output = e.outputBuffer.getChannelData(0);
+        
+        // FFT benzeri spektral manipülasyon
+        for (let i = 0; i < input.length; i++) {
+          let sample = input[i];
+          
+          // Çoklu frekans kaydırma
+          sample = sample * Math.sin(i * 0.1 + spectralTime) +
+                   sample * Math.cos(i * 0.2 + spectralTime * 2) * 0.5 +
+                   sample * Math.sin(i * 0.05 + spectralTime * 0.5) * 0.3;
+          
+          // Formant kaydırma
+          const formantShift = 1.3 + Math.sin(spectralTime * 3) * 0.4;
+          const index = Math.floor(i / formantShift);
+          
+          output[i] = index < input.length ? sample * 0.7 : 0;
+        }
+        
+        spectralTime += 0.01;
+      };
+      
+      const spectralRing = audioContext.createGain();
+      const spectralOsc = audioContext.createOscillator();
+      spectralOsc.frequency.value = 237; // Prime number frequency
+      spectralOsc.type = 'triangle';
+      const spectralOscGain = audioContext.createGain();
+      spectralOscGain.gain.value = 0.3;
+      spectralOsc.connect(spectralOscGain);
+      spectralOsc.start();
+      
+      input.connect(spectralShift);
+      spectralShift.connect(spectralRing);
+      spectralOscGain.connect(spectralRing.gain);
+      spectralRing.connect(output);
+      break;
+      
+    case 'crypto3': // Kuantum Karışım
+      const quantumProcessor = audioContext.createScriptProcessor(4096, 1, 1);
+      let quantumSeed = Math.random() * 1000;
+      
+      quantumProcessor.onaudioprocess = function(e) {
+        const input = e.inputBuffer.getChannelData(0);
+        const output = e.outputBuffer.getChannelData(0);
+        
+        for (let i = 0; i < input.length; i++) {
+          // Pseudo-random pitch shifting
+          const randomShift = Math.sin(quantumSeed + i * 0.01) * 0.5 + 1;
+          const shiftedIndex = Math.floor(i / randomShift);
+          
+          // Granular synthesis benzeri
+          const grainSize = 64;
+          const grainIndex = i % grainSize;
+          const envelope = Math.sin((grainIndex / grainSize) * Math.PI);
+          
+          let sample = shiftedIndex < input.length ? input[shiftedIndex] : 0;
+          sample *= envelope;
+          
+          // Chaos modulation
+          quantumSeed = (quantumSeed * 1.1 + 0.1) % 1000;
+          const chaos = Math.sin(quantumSeed) * 0.3;
+          
+          output[i] = sample * (1 + chaos);
+        }
+      };
+      
+      const quantumFilter1 = audioContext.createBiquadFilter();
+      quantumFilter1.type = 'notch';
+      quantumFilter1.frequency.value = 800;
+      quantumFilter1.Q.value = 20;
+      
+      const quantumFilter2 = audioContext.createBiquadFilter();
+      quantumFilter2.type = 'peaking';
+      quantumFilter2.frequency.value = 1500;
+      quantumFilter2.Q.value = 5;
+      quantumFilter2.gain.value = -10;
+      
+      input.connect(quantumProcessor);
+      quantumProcessor.connect(quantumFilter1);
+      quantumFilter1.connect(quantumFilter2);
+      quantumFilter2.connect(output);
+      break;
+      
+    case 'crypto4': // Vokal Maskeleme
+      const vocalMask = audioContext.createScriptProcessor(4096, 1, 1);
+      let maskPhase = 0;
+      const bufferSize = 2048;
+      const overlapBuffer = new Float32Array(bufferSize);
+      
+      vocalMask.onaudioprocess = function(e) {
+        const input = e.inputBuffer.getChannelData(0);
+        const output = e.outputBuffer.getChannelData(0);
+        
+        for (let i = 0; i < input.length; i++) {
+          // Formant shifting with overlap
+          const shift1 = 0.7 + Math.sin(maskPhase) * 0.3;
+          const shift2 = 1.4 + Math.cos(maskPhase * 1.5) * 0.3;
+          
+          const index1 = Math.floor(i * shift1);
+          const index2 = Math.floor(i / shift2);
+          
+          let sample = 0;
+          if (index1 < input.length) sample += input[index1] * 0.5;
+          if (index2 < input.length) sample += input[index2] * 0.5;
+          
+          // Vokal karakteristik gizleme
+          const vocoderFreq = 100 + Math.sin(maskPhase * 2) * 50;
+          sample *= Math.sin(i * vocoderFreq * 0.01);
+          
+          output[i] = sample * 0.8;
+          maskPhase += 0.0001;
+        }
+      };
+      
+      const vocalNotch1 = audioContext.createBiquadFilter();
+      vocalNotch1.type = 'notch';
+      vocalNotch1.frequency.value = 650; // İlk formant bölgesi
+      vocalNotch1.Q.value = 10;
+      
+      const vocalNotch2 = audioContext.createBiquadFilter();
+      vocalNotch2.type = 'notch';
+      vocalNotch2.frequency.value = 1100; // İkinci formant bölgesi
+      vocalNotch2.Q.value = 10;
+      
+      const vocalShelf = audioContext.createBiquadFilter();
+      vocalShelf.type = 'highshelf';
+      vocalShelf.frequency.value = 3000;
+      vocalShelf.gain.value = -6;
+      
+      input.connect(vocalMask);
+      vocalMask.connect(vocalNotch1);
+      vocalNotch1.connect(vocalNotch2);
+      vocalNotch2.connect(vocalShelf);
+      vocalShelf.connect(output);
+      break;
+      
+    case 'crypto5': // Hibrit Şifreleme
+      const hybridProcessor = audioContext.createScriptProcessor(4096, 1, 1);
+      let hybridTime = 0;
+      let hybridBuffer = new Float32Array(4096);
+      let bufferIndex = 0;
+      
+      hybridProcessor.onaudioprocess = function(e) {
+        const input = e.inputBuffer.getChannelData(0);
+        const output = e.outputBuffer.getChannelData(0);
+        
+        for (let i = 0; i < input.length; i++) {
+          // Buffer'a yaz
+          hybridBuffer[bufferIndex] = input[i];
+          bufferIndex = (bufferIndex + 1) % hybridBuffer.length;
+          
+          // Karmaşık pitch ve time stretching
+          const stretchFactor = 1.2 + Math.sin(hybridTime) * 0.5;
+          const pitchFactor = 0.8 + Math.cos(hybridTime * 1.3) * 0.4;
+          
+          const readIndex1 = Math.floor((bufferIndex - i * stretchFactor) + hybridBuffer.length) % hybridBuffer.length;
+          const readIndex2 = Math.floor((bufferIndex - i * pitchFactor) + hybridBuffer.length) % hybridBuffer.length;
+          
+          // Çoklu okuma ve karıştırma
+          let sample = hybridBuffer[readIndex1] * 0.4 + hybridBuffer[readIndex2] * 0.4;
+          
+          // Ring modulation with varying frequency
+          const ringFreq = 200 + Math.sin(hybridTime * 2) * 100;
+          sample *= Math.sin(i * ringFreq * 0.001);
+          
+          // Bit reduction
+          const bits = 6 + Math.floor(Math.sin(hybridTime * 0.5) * 2);
+          const step = 2 / Math.pow(2, bits);
+          sample = Math.round(sample / step) * step;
+          
+          output[i] = sample * 0.9;
+          hybridTime += 0.00005;
+        }
+      };
+      
+      const hybridComb1 = audioContext.createDelay(0.1);
+      hybridComb1.delayTime.value = 0.007;
+      const hybridCombGain1 = audioContext.createGain();
+      hybridCombGain1.gain.value = -0.5;
+      
+      const hybridComb2 = audioContext.createDelay(0.1);
+      hybridComb2.delayTime.value = 0.011;
+      const hybridCombGain2 = audioContext.createGain();
+      hybridCombGain2.gain.value = -0.4;
+      
+      const hybridMix = audioContext.createGain();
+      hybridMix.gain.value = 0.7;
+      
+      input.connect(hybridProcessor);
+      hybridProcessor.connect(output);
+      
+      hybridProcessor.connect(hybridComb1);
+      hybridComb1.connect(hybridCombGain1);
+      hybridCombGain1.connect(hybridComb1);
+      hybridComb1.connect(hybridMix);
+      
+      hybridProcessor.connect(hybridComb2);
+      hybridComb2.connect(hybridCombGain2);
+      hybridCombGain2.connect(hybridComb2);
+      hybridComb2.connect(hybridMix);
+      
+      hybridMix.connect(output);
+      break;
   }
   
   return {
